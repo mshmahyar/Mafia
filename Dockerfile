@@ -1,6 +1,6 @@
 FROM python:3.11-slim
 
-WORKDIR /Mafia
+WORKDIR . .
 COPY requirements.txt .
 RUN python -m venv /opt/venv \
     && . /opt/venv/bin/activate \
