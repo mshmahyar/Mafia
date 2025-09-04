@@ -1,18 +1,27 @@
-FROM python:3.11-slim
+# از نسخه کامل Python 3.11 استفاده می‌کنیم (نه slim)
+FROM python:3.11
 
+# محل کار
 WORKDIR /app
 
-# اول فقط requirements.txt برای کش بهتر
+# ساخت venv و اضافه کردنش به PATH
+RUN python -m venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
+
+# نصب ابزارهای پایه (داخل ایمیج کامل معمولاً هست ولی برای اطمینان اضافه می‌کنیم)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential gcc \
+ && rm -rf /var/lib/apt/lists/*
+
+# ارتقا pip و ابزارهای build
+RUN python -m pip install --upgrade pip setuptools wheel
+
+# نصب وابستگی‌ها
 COPY requirements.txt .
+RUN python -m pip install -r requirements.txt
 
-# نصب پکیج‌ها
-RUN python -m venv /opt/venv \
-    && . /opt/venv/bin/activate \
-    && pip install --upgrade pip \
-    && pip install -r requirements.txt
-
-# حالا کل سورس پروژه
+# کپی سورس پروژه
 COPY . .
 
-# دستور اجرا
-CMD ["/opt/venv/bin/python", "main.py"]
+# اجرای برنامه
+CMD ["python", "main.py"]
