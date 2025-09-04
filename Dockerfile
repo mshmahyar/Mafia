@@ -1,6 +1,6 @@
 FROM python:3.11-slim
 
-WORKDIR /Mafia
+WORKDIR /app
 
 # اول فقط requirements.txt برای کش بهتر
 COPY requirements.txt .
