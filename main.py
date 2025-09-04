@@ -270,7 +270,7 @@ async def update_lobby():
     await bot.edit_message_text(text, chat_id=group_chat_id, message_id=lobby_message_id, reply_markup=kb, parse_mode=ParseMode.MARKDOWN)
 
 # ======================
-# شروع بازی و پخش نقش‌ها
+# شروع بازی و پخش نقش‌ها + شروع نوبت اول
 # ======================
 @dp.callback_query_handler(lambda c: c.data == "start_play")
 async def start_play(callback: types.CallbackQuery):
@@ -284,27 +284,32 @@ async def start_play(callback: types.CallbackQuery):
         await callback.answer(f"❌ تعداد بازیکنان کافی نیست! حداقل {len(roles)} نفر نیاز است.", show_alert=True)
         return
 
+    # تصادفی‌سازی نقش‌ها و نوبت‌ها
     shuffled_roles = random.sample(roles, len(players))
     player_ids = list(players.keys())
     turn_order = player_ids.copy()
     random.shuffle(turn_order)
     current_turn_index = 0
 
+    # ارسال نقش‌ها به بازیکنان
     for pid, role in zip(player_ids, shuffled_roles):
         try:
             await bot.send_message(pid, f"🎭 نقش شما: {role}")
         except:
             await bot.send_message(moderator_id, f"⚠ نمی‌توانم نقش را به {players[pid]} ارسال کنم.")
 
+    # اطلاع‌رسانی نقش‌ها به گرداننده
     text = "📜 نقش‌ها برای بازیکنان:\n"
     for pid, role in zip(player_ids, shuffled_roles):
         text += f"{players[pid]} → {role}\n"
     await bot.send_message(moderator_id, text)
+
     await callback.answer("✅ بازی شروع شد!")
 
-# در انتهای start_play
-if turn_order:
-    await start_turn(turn_order[0])
+    # فراخوانی نوبت اول
+    if turn_order:
+        await start_turn(turn_order[0])
+
 
 
 # ======================
