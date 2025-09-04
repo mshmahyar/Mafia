@@ -35,6 +35,11 @@ current_turn_index = 0
 turn_order = []
 turn_task = None
 challenge_queue = []
+turn_time_seconds = 120  # زمان هر نوبت به ثانیه
+current_turn_message_id = None  # پیام پین شده نوبت فعلی
+turn_task = None  # تسک تایمر نوبت
+challenge_queue = []  # صف چالش‌ها
+
 
 SCENARIO_FILE = "scenarios.json"
 
@@ -86,6 +91,68 @@ def join_menu():
     )
     kb.add(InlineKeyboardButton("🔙 بازگشت", callback_data="back_game"))
     return kb
+
+def turn_keyboard(player_id):
+    kb = InlineKeyboardMarkup(row_width=1)
+    kb.add(InlineKeyboardButton("⏭ نکست", callback_data=f"next_turn_{player_id}"))
+    return kb
+
+async def start_turn(player_id, is_challenge=False, challenge_from=None, challenge_type=None):
+    global current_turn_message_id, turn_task
+
+    player_mention = f"[{players[player_id]}](tg://user?id={player_id})"
+    if is_challenge:
+        text = f"⏱ زمان: {turn_time_seconds} ثانیه\n" \
+               f"🎯 نوبت چالش {challenge_type} از {players[challenge_from]} است\n" \
+               f"بازیکن: {player_mention}"
+    else:
+        text = f"⏱ زمان: {turn_time_seconds} ثانیه\n" \
+               f"🗣 نوبت صحبت {player_mention} است"
+
+    msg = await bot.send_message(group_chat_id, text, reply_markup=turn_keyboard(player_id), parse_mode="Markdown")
+    current_turn_message_id = msg.message_id
+    await bot.pin_chat_message(group_chat_id, current_turn_message_id)
+
+    # تایمر زنده
+    async def countdown():
+        remaining = turn_time_seconds
+        while remaining > 0:
+            await asyncio.sleep(10)
+            remaining -= 10
+            try:
+                await bot.edit_message_text(
+                    f"⏱ زمان: {remaining} ثانیه\n" + text.split("\n", 1)[1],
+                    chat_id=group_chat_id,
+                    message_id=current_turn_message_id,
+                    reply_markup=turn_keyboard(player_id),
+                    parse_mode="Markdown"
+                )
+            except:
+                break
+
+    turn_task = asyncio.create_task(countdown())
+
+@dp.callback_query_handler(lambda c: c.data.startswith("next_turn_"))
+async def next_turn(callback: types.CallbackQuery):
+    global current_turn_index, turn_task
+
+    player_id = int(callback.data.replace("next_turn_", ""))
+    if callback.from_user.id != player_id and callback.from_user.id != moderator_id:
+        await callback.answer("❌ شما نمی‌توانید این نوبت را پایان دهید.", show_alert=True)
+        return
+
+    if turn_task:
+        turn_task.cancel()
+
+    await callback.answer("⏭ نوبت پایان یافت!")
+
+    # حرکت به نوبت بعدی
+    current_turn_index += 1
+    if current_turn_index < len(turn_order):
+        await start_turn(turn_order[current_turn_index])
+    else:
+        await bot.send_message(group_chat_id, "✅ همه نوبت‌ها پایان یافتند!")
+
 
 # ======================
 # منوی اصلی
@@ -234,6 +301,11 @@ async def start_play(callback: types.CallbackQuery):
         text += f"{players[pid]} → {role}\n"
     await bot.send_message(moderator_id, text)
     await callback.answer("✅ بازی شروع شد!")
+
+# در انتهای start_play
+if turn_order:
+    await start_turn(turn_order[0])
+
 
 # ======================
 # استارتاپ
