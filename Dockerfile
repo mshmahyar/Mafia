@@ -2,7 +2,7 @@
 FROM python:3.11
 
 # محل کار
-WORKDIR /app
+WORKDIR /Mafia
 
 # ساخت venv و اضافه کردنش به PATH
 RUN python -m venv /opt/venv
