@@ -6,6 +6,6 @@ RUN python -m venv /opt/venv \
     && . /opt/venv/bin/activate \
     && pip install --upgrade pip \
     && pip install -r requirements.txt
-COPY . /Mafia
+COPY . .
 
 CMD [ "python", "main.py" ]
