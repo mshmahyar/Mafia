@@ -27,67 +27,98 @@ dp = Dispatcher(bot)
 game_running = False
 lobby_message_id = None
 group_chat_id = None
+
+# سناریوها از فایل JSON خوانده می‌شوند
+SCENARIOS_FILE = "scenarios.json"
+if not os.path.exists(SCENARIOS_FILE):
+    with open(SCENARIOS_FILE, "w", encoding="utf-8") as f:
+        json.dump({
+            "سناریو کلاسیک": {"min_players": 5, "roles": ["مافیا", "مافیا", "شهروند", "شهروند", "شهروند"]},
+            "سناریو ویژه": {"min_players": 6, "roles": ["مافیا", "مافیا", "شهروند", "شهروند", "شهروند", "کارآگاه"]}
+        }, f, ensure_ascii=False, indent=4)
+
+def load_scenarios():
+    with open(SCENARIOS_FILE, "r", encoding="utf-8") as f:
+        return json.load(f)
+
+def save_scenario(name, min_players, roles):
+    scenarios = load_scenarios()
+    scenarios[name] = {"min_players": min_players, "roles": roles}
+    with open(SCENARIOS_FILE, "w", encoding="utf-8") as f:
+        json.dump(scenarios, f, ensure_ascii=False, indent=4)
+
+scenarios = load_scenarios()
+
 admins = set()  # لیست ادمین های گروه
 moderator_id = None
 selected_scenario = None
 players = {}  # {user_id: full_name}
 
 # ======================
-# مدیریت سناریوها (با فایل)
-# ======================
-SCENARIOS_FILE = "scenarios.json"
-
-def load_scenarios():
-    if not os.path.exists(SCENARIOS_FILE):
-        return {}
-    with open(SCENARIOS_FILE, "r", encoding="utf-8") as f:
-        return json.load(f)
-
-def save_scenarios():
-    with open(SCENARIOS_FILE, "w", encoding="utf-8") as f:
-        json.dump(scenarios, f, ensure_ascii=False, indent=2)
-
-scenarios = load_scenarios()
-if not scenarios:  # اگر فایل خالی بود، مقدار پیش‌فرض بذار
-    scenarios = {
-        "سناریو کلاسیک": {
-            "min_players": 5,
-            "roles": ["مافیا", "مافیا", "شهروند", "شهروند", "شهروند"]
-        },
-        "سناریو ویژه": {
-            "min_players": 6,
-            "roles": ["مافیا", "مافیا", "شهروند", "شهروند", "شهروند", "کارآگاه"]
-        }
-    }
-    save_scenarios()
-
-# ======================
 # کیبوردها
 # ======================
 def main_menu():
+    kb = InlineKeyboardMarkup(row_width=1)
+    kb.add(
+        InlineKeyboardButton("🎮 بازی جدید", callback_data="menu_new_game"),
+        InlineKeyboardButton("🗂 مدیریت سناریو", callback_data="menu_manage_scenarios"),
+        InlineKeyboardButton("📖 راهنما", callback_data="menu_help")
+    )
+    return kb
+
+def game_menu():
     kb = InlineKeyboardMarkup(row_width=2)
-    kb.add(InlineKeyboardButton("📝 انتخاب سناریو", callback_data="choose_scenario"))
-    kb.add(InlineKeyboardButton("🎩 انتخاب گرداننده", callback_data="choose_moderator"))
+    kb.add(
+        InlineKeyboardButton("📝 انتخاب سناریو", callback_data="choose_scenario"),
+        InlineKeyboardButton("🎩 انتخاب گرداننده", callback_data="choose_moderator"),
+        InlineKeyboardButton("🔙 بازگشت", callback_data="back_main")
+    )
     return kb
 
 def join_menu():
     kb = InlineKeyboardMarkup(row_width=2)
-    kb.add(InlineKeyboardButton("✅ ورود به بازی", callback_data="join_game"))
-    kb.add(InlineKeyboardButton("❌ انصراف از بازی", callback_data="leave_game"))
+    kb.add(
+        InlineKeyboardButton("✅ ورود به بازی", callback_data="join_game"),
+        InlineKeyboardButton("❌ انصراف از بازی", callback_data="leave_game")
+    )
+    return kb
+
+def admin_lobby_menu():
+    kb = InlineKeyboardMarkup(row_width=2)
+    kb.add(
+        InlineKeyboardButton("▶ شروع بازی", callback_data="start_play"),
+        InlineKeyboardButton("⚠ لغو بازی", callback_data="cancel_game"),
+        InlineKeyboardButton("🔄 تغییر سناریو", callback_data="choose_scenario")
+    )
     return kb
 
 # ======================
-# شروع بازی توسط ادمین
+# استارت و منوی اصلی
 # ======================
-@dp.message_handler(commands=["startgame"])
-async def start_game(message: types.Message):
-    global group_chat_id, game_running, admins, lobby_message_id
+@dp.message_handler(commands=["start"])
+async def cmd_start(message: types.Message):
+    await message.reply("👋 خوش آمدید به ربات بازی مافیا!", reply_markup=main_menu())
 
-    group_chat_id = message.chat.id
+@dp.callback_query_handler(lambda c: c.data == "back_main")
+async def back_to_main(callback: types.CallbackQuery):
+    await callback.message.edit_text("👋 منوی اصلی:", reply_markup=main_menu())
+    await callback.answer()
+
+# ======================
+# منوی بازی جدید
+# ======================
+@dp.callback_query_handler(lambda c: c.data == "menu_new_game")
+async def menu_new_game(callback: types.CallbackQuery):
+    global group_chat_id, game_running, admins, lobby_message_id
+    group_chat_id = callback.message.chat.id
     game_running = True
     admins = {member.user.id for member in await bot.get_chat_administrators(group_chat_id)}
-    msg = await message.reply("🎮 بازی مافیا فعال شد! لطفا سناریو و گرداننده را انتخاب کنید.", reply_markup=main_menu())
+    msg = await callback.message.edit_text(
+        "🎮 بازی جدید فعال شد! لطفا سناریو و گرداننده را انتخاب کنید.",
+        reply_markup=game_menu()
+    )
     lobby_message_id = msg.message_id
+    await callback.answer()
 
 # ======================
 # انتخاب سناریو و گرداننده
@@ -97,6 +128,7 @@ async def choose_scenario(callback: types.CallbackQuery):
     kb = InlineKeyboardMarkup(row_width=1)
     for scen in scenarios:
         kb.add(InlineKeyboardButton(scen, callback_data=f"scenario_{scen}"))
+    kb.add(InlineKeyboardButton("🔙 بازگشت", callback_data="menu_new_game"))
     await callback.message.edit_text("📝 یک سناریو انتخاب کنید:", reply_markup=kb)
     await callback.answer()
 
@@ -104,7 +136,19 @@ async def choose_scenario(callback: types.CallbackQuery):
 async def scenario_selected(callback: types.CallbackQuery):
     global selected_scenario
     selected_scenario = callback.data.replace("scenario_", "")
-    await callback.message.edit_text(f"📝 سناریو انتخاب شد: {selected_scenario}\nحالا گرداننده را انتخاب کنید.", reply_markup=main_menu())
+    # بررسی تعداد بازیکنان نسبت به سناریو
+    max_players = len(scenarios[selected_scenario]["roles"])
+    if len(players) > max_players:
+        await callback.answer(
+            f"❌ تعداد بازیکنان بیشتر از حداکثر سناریو ({max_players}) است!",
+            show_alert=True
+        )
+        selected_scenario = None
+        return
+    await callback.message.edit_text(
+        f"📝 سناریو انتخاب شد: {selected_scenario}\nحالا گرداننده را انتخاب کنید.",
+        reply_markup=game_menu()
+    )
     await callback.answer()
 
 @dp.callback_query_handler(lambda c: c.data == "choose_moderator")
@@ -113,6 +157,7 @@ async def choose_moderator(callback: types.CallbackQuery):
     for admin_id in admins:
         member = await bot.get_chat_member(group_chat_id, admin_id)
         kb.add(InlineKeyboardButton(member.user.full_name, callback_data=f"moderator_{admin_id}"))
+    kb.add(InlineKeyboardButton("🔙 بازگشت", callback_data="menu_new_game"))
     await callback.message.edit_text("🎩 یک گرداننده انتخاب کنید:", reply_markup=kb)
     await callback.answer()
 
@@ -120,7 +165,10 @@ async def choose_moderator(callback: types.CallbackQuery):
 async def moderator_selected(callback: types.CallbackQuery):
     global moderator_id
     moderator_id = int(callback.data.replace("moderator_", ""))
-    await callback.message.edit_text(f"🎩 گرداننده انتخاب شد: {(await bot.get_chat_member(group_chat_id, moderator_id)).user.full_name}\nحالا اعضا می‌توانند وارد بازی شوند یا انصراف دهند.", reply_markup=join_menu())
+    await callback.message.edit_text(
+        f"🎩 گرداننده انتخاب شد: {(await bot.get_chat_member(group_chat_id, moderator_id)).user.full_name}\nحالا اعضا می‌توانند وارد بازی شوند یا انصراف دهند.",
+        reply_markup=join_menu()
+    )
     await callback.answer()
 
 # ======================
@@ -152,17 +200,22 @@ async def leave_game_callback(callback: types.CallbackQuery):
 async def update_lobby():
     if not group_chat_id or not lobby_message_id:
         return
-    text = f"📋 **لیست بازی:**\nسناریو: {selected_scenario}\nگرداننده: {(await bot.get_chat_member(group_chat_id, moderator_id)).user.full_name if moderator_id else 'انتخاب نشده'}\n\n"
+    text = f"📋 **لیست بازی:**\nسناریو: {selected_scenario or 'انتخاب نشده'}\nگرداننده: {(await bot.get_chat_member(group_chat_id, moderator_id)).user.full_name if moderator_id else 'انتخاب نشده'}\n\n"
     if players:
         for uid, name in players.items():
             text += f"- {name}\n"
     else:
         text += "هیچ بازیکنی وارد بازی نشده است.\n"
 
-    min_players = scenarios[selected_scenario]["min_players"] if selected_scenario else 0
+    # بررسی تعداد بازیکنان نسبت به سناریو
     kb = join_menu()
-    if len(players) >= min_players and moderator_id:
-        kb = InlineKeyboardMarkup().add(InlineKeyboardButton("▶ شروع بازی", callback_data="start_play"))
+    if moderator_id and selected_scenario:
+        max_players = len(scenarios[selected_scenario]["roles"])
+        if len(players) > max_players:
+            kb = InlineKeyboardMarkup()
+            kb.add(InlineKeyboardButton("⚠ لغو بازی", callback_data="cancel_game"))
+        elif len(players) >= scenarios[selected_scenario]["min_players"]:
+            kb = admin_lobby_menu()
 
     await bot.edit_message_text(text, chat_id=group_chat_id, message_id=lobby_message_id, reply_markup=kb, parse_mode="Markdown")
 
@@ -195,103 +248,68 @@ async def start_play(callback: types.CallbackQuery):
     await callback.answer("✅ بازی شروع شد!")
 
 # ======================
-# افزودن سناریو جدید (پی‌وی ادمین)
+# لغو بازی
 # ======================
-@dp.message_handler(commands=["addscenario"], chat_type=types.ChatType.PRIVATE)
-async def add_scenario(message: types.Message):
-    # بررسی اینکه یوزر ادمین گروه هست یا نه
-    if not group_chat_id:
-        await message.answer("⚠ ابتدا باید یک بازی در گروه شروع کنید.")
+@dp.callback_query_handler(lambda c: c.data == "cancel_game")
+async def cancel_game(callback: types.CallbackQuery):
+    global game_running, players, selected_scenario, moderator_id
+    if callback.from_user.id not in admins:
+        await callback.answer("❌ فقط ادمین‌ها می‌توانند بازی را لغو کنند.", show_alert=True)
         return
-
-    admins = await bot.get_chat_administrators(group_chat_id)
-    admin_ids = [a.user.id for a in admins]
-    if message.from_user.id not in admin_ids:
-        await message.answer("❌ فقط ادمین‌ها می‌توانند سناریو اضافه کنند.")
-        return
-
-    parts = message.text.split(" ", 2)
-    if len(parts) < 3:
-        await message.answer("❌ فرمت درست نیست.\nمثال:\n`/addscenario سناریو تست | 5 | مافیا,مافیا,شهروند,شهروند,کارآگاه`", parse_mode="Markdown")
-        return
-
-    try:
-        name, rest = parts[1], parts[2]
-        min_players_str, roles_str = rest.split("|", 1)
-        min_players = int(min_players_str.strip())
-        roles = [r.strip() for r in roles_str.split(",") if r.strip()]
-    except Exception:
-        await message.answer("❌ خطا در پردازش ورودی. فرمت را دقیق وارد کنید.")
-        return
-
-    scenarios[name] = {"min_players": min_players, "roles": roles}
-    save_scenarios()
-    await message.answer(f"✅ سناریو '{name}' با موفقیت اضافه شد!")
+    game_running = False
+    players = {}
+    selected_scenario = None
+    moderator_id = None
+    await callback.message.edit_text("❌ بازی لغو شد و آماده شروع بازی جدید هستیم.", reply_markup=main_menu())
+    await callback.answer()
 
 # ======================
-# حذف سناریو (گروه - دو مرحله‌ای)
+# مدیریت سناریو توسط ادمین‌ها در پیام خصوصی
 # ======================
-@dp.message_handler(commands=["removescenario"], chat_type=["group", "supergroup"])
-async def remove_scenario_menu(message: types.Message):
-    admins = await bot.get_chat_administrators(message.chat.id)
-    admin_ids = [a.user.id for a in admins]
-
-    if message.from_user.id not in admin_ids:
-        await message.reply("❌ فقط ادمین‌ها می‌توانند سناریو حذف کنند.")
+@dp.message_handler(commands=["addscenario"])
+async def add_scenario_cmd(message: types.Message):
+    if message.from_user.id not in admins:
+        await message.reply("❌ فقط ادمین‌ها می‌توانند سناریو اضافه کنند.")
         return
-
-    if not scenarios:
-        await message.reply("⚠ هیچ سناریویی برای حذف وجود ندارد.")
-        return
-
-    kb = InlineKeyboardMarkup(row_width=1)
-    for scen in scenarios:
-        kb.add(InlineKeyboardButton(f"🗑 {scen}", callback_data=f"delete_scenario_{scen}"))
-
-    await message.reply("🗑 یک سناریو برای حذف انتخاب کنید:", reply_markup=kb)
-
-@dp.callback_query_handler(lambda c: c.data.startswith("delete_scenario_"))
-async def confirm_delete_scenario(callback: types.CallbackQuery):
-    scenario_name = callback.data.replace("delete_scenario_", "")
-    if scenario_name not in scenarios:
-        await callback.answer("⚠ سناریو پیدا نشد.", show_alert=True)
-        return
-
-    kb = InlineKeyboardMarkup(row_width=2)
-    kb.add(
-        InlineKeyboardButton("✅ بله", callback_data=f"confirm_delete_{scenario_name}"),
-        InlineKeyboardButton("❌ خیر", callback_data="cancel_delete")
+    await message.reply(
+        "📥 برای افزودن سناریو جدید، متن را این فرمت ارسال کنید:\n"
+        "`نام سناریو|حداقل بازیکن|نقش1,نقش2,نقش3,...`\n\n"
+        "مثال:\n"
+        "`سناریو جدید|5|مافیا,مافیا,شهروند,شهروند,کارآگاه`",
+        parse_mode="Markdown"
     )
-    await callback.message.edit_text(f"آیا مطمئن هستید که می‌خواهید سناریو '{scenario_name}' را حذف کنید؟", reply_markup=kb)
 
-@dp.callback_query_handler(lambda c: c.data.startswith("confirm_delete_"))
-async def delete_scenario(callback: types.CallbackQuery):
-    scenario_name = callback.data.replace("confirm_delete_", "")
-    if scenario_name not in scenarios:
-        await callback.answer("⚠ سناریو پیدا نشد.", show_alert=True)
+@dp.message_handler()
+async def add_scenario_message(message: types.Message):
+    if message.from_user.id not in admins:
         return
+    if "|" not in message.text:
+        return
+    try:
+        name, min_p, roles_str = message.text.split("|")
+        min_p = int(min_p.strip())
+        roles = [r.strip() for r in roles_str.split(",") if r.strip()]
+        save_scenario(name.strip(), min_p, roles)
+        global scenarios
+        scenarios = load_scenarios()
+        await message.reply(f"✅ سناریو '{name.strip()}' اضافه شد!")
+    except Exception as e:
+        await message.reply(f"❌ فرمت یا داده‌ها صحیح نیستند. خطا: {e}")
 
-    scenarios.pop(scenario_name)
-    save_scenarios()
-
-    await callback.answer(f"✅ سناریو '{scenario_name}' با موفقیت حذف شد.", show_alert=True)
-
-    if scenarios:
-        kb = InlineKeyboardMarkup(row_width=1)
-        for scen in scenarios:
-            kb.add(InlineKeyboardButton(f"🗑 {scen}", callback_data=f"delete_scenario_{scen}"))
-        await callback.message.edit_text("🗑 یک سناریو برای حذف انتخاب کنید:", reply_markup=kb)
-    else:
-        await callback.message.edit_text("⚠ هیچ سناریویی باقی نمانده است.")
-
-@dp.callback_query_handler(lambda c: c.data == "cancel_delete")
-async def cancel_delete(callback: types.CallbackQuery):
-    kb = InlineKeyboardMarkup(row_width=1)
-    for scen in scenarios:
-        kb.add(InlineKeyboardButton(f"🗑 {scen}", callback_data=f"delete_scenario_{scen}"))
-
-    await callback.message.edit_text("🗑 انتخاب سناریو برای حذف:", reply_markup=kb)
-    await callback.answer("❌ حذف لغو شد.", show_alert=True)
+# ======================
+# راهنما
+# ======================
+@dp.callback_query_handler(lambda c: c.data == "menu_help")
+async def menu_help(callback: types.CallbackQuery):
+    text = (
+        "📖 راهنما ربات مافیا:\n\n"
+        "- 🎮 بازی جدید: شروع یک بازی جدید و انتخاب سناریو و گرداننده\n"
+        "- 🗂 مدیریت سناریو: افزودن سناریو جدید توسط ادمین‌ها\n"
+        "- 📖 راهنما: نمایش این متن\n\n"
+        "برای افزودن سناریو جدید در پیام خصوصی ربات، از دستور /addscenario استفاده کنید."
+    )
+    await callback.message.edit_text(text, reply_markup=main_menu())
+    await callback.answer()
 
 # ======================
 # استارتاپ امن
