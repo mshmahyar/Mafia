@@ -235,63 +235,52 @@ async def leave_game_callback(callback: types.CallbackQuery):
 # ======================
 async def update_lobby():
     global lobby_message_id
-
     if not group_chat_id or not lobby_message_id:
         return
 
-    # متن لابی
     text = f"📋 **لیست بازی:**\n"
-    text += f"سناریو: {selected_scenario}\n"
+    text += f"سناریو: {selected_scenario or 'انتخاب نشده'}\n"
     text += f"گرداننده: {(await bot.get_chat_member(group_chat_id, moderator_id)).user.full_name if moderator_id else 'انتخاب نشده'}\n\n"
 
     if players:
         for uid, name in players.items():
-            # بررسی اگه بازیکن جایگاه داره
-            slot_num = None
-            for s, pid in player_slots.items():
-                if pid == uid:
-                    slot_num = s
-                    break
-            if slot_num:
-                text += f"- {name} 🎯 جایگاه {slot_num}\n"
-            else:
-                text += f"- {name}\n"
+            text += f"- {name}\n"
     else:
         text += "هیچ بازیکنی وارد بازی نشده است.\n"
 
-    # شرایط سناریو
-    min_players = scenarios[selected_scenario]["min_players"] if selected_scenario else 0
-    max_players = scenarios[selected_scenario]["max_players"] if selected_scenario and "max_players" in scenarios[selected_scenario] else 0
-
-    # ساخت کیبورد
     kb = InlineKeyboardMarkup(row_width=5)
 
-    # دکمه‌های جایگاه
-    for i in range(1, max_players + 1):
-        if i in player_slots and player_slots[i] in players:
-            kb.insert(InlineKeyboardButton(f"{i} ({players[player_slots[i]]})", callback_data=f"slot_{i}"))
+    # ✅ دکمه‌های انتخاب صندلی
+    if selected_scenario:
+        max_players = len(scenarios[selected_scenario]["roles"])
+        for i in range(1, max_players + 1):
+            if i in player_slots:
+                # اگه صندلی پر باشه → نمایش نام بازیکن
+                player_name = players.get(player_slots[i], "❓")
+                kb.insert(InlineKeyboardButton(f"{i} ({player_name})", callback_data=f"slot_{i}"))
+            else:
+                kb.insert(InlineKeyboardButton(str(i), callback_data=f"slot_{i}"))
 
-        else:
-            kb.insert(InlineKeyboardButton(str(i), callback_data=f"slot_{i}"))
-
-    # دکمه ورود/خروج
+    # ✅ دکمه ورود/خروج
     kb.row(
         InlineKeyboardButton("✅ ورود به بازی", callback_data="join_game"),
         InlineKeyboardButton("❌ خروج از بازی", callback_data="leave_game"),
     )
 
-    # دکمه لغو بازی (فقط برای مدیران)
+    # ✅ دکمه لغو بازی فقط برای مدیران
     if moderator_id and moderator_id in admins:
         kb.add(InlineKeyboardButton("🚫 لغو بازی", callback_data="cancel_game"))
 
-    # دکمه شروع بازی
+    # ✅ دکمه شروع بازی در صورت کافی بودن بازیکنان
     if selected_scenario and moderator_id:
+        min_players = scenarios[selected_scenario]["min_players"]
+        max_players = len(scenarios[selected_scenario]["roles"])
         if min_players <= len(players) <= max_players:
             kb.add(InlineKeyboardButton("▶ شروع بازی", callback_data="start_play"))
         elif len(players) > max_players:
             text += "\n⚠️ تعداد بازیکنان بیش از ظرفیت این سناریو است."
 
-    # ویرایش پیام لابی
+    # 🔄 بروزرسانی پیام لابی
     await bot.edit_message_text(
         text,
         chat_id=group_chat_id,
@@ -299,6 +288,7 @@ async def update_lobby():
         reply_markup=kb,
         parse_mode="Markdown"
     )
+
 
 # ======================
 # لغو بازی توسط مدیران
