@@ -416,10 +416,14 @@ async def back_to_lobby(callback: types.CallbackQuery):
 # ======================
 @dp.callback_query_handler(lambda c: c.data == "start_play")
 async def start_play(callback: types.CallbackQuery):
-    global turn_order, current_turn_index
+    global turn_order, current_turn_index, group_chat_id
+
     if callback.from_user.id != moderator_id:
         await callback.answer("❌ فقط گرداننده می‌تواند بازی را شروع کند.", show_alert=True)
         return
+
+    if not group_chat_id:
+        group_chat_id = callback.message.chat.id
 
     roles = scenarios[selected_scenario]["roles"]
     if len(players) < len(roles):
@@ -435,17 +439,49 @@ async def start_play(callback: types.CallbackQuery):
     for pid, role in zip(player_ids, shuffled_roles):
         try:
             await bot.send_message(pid, f"🎭 نقش شما: {role}")
-        except (BotBlocked, ChatNotFound):
-            await bot.send_message(moderator_id, f"⚠ نمی‌توانم نقش را به {players[pid]} ارسال کنم.")
+        except:
+            if moderator_id:
+                await bot.send_message(moderator_id, f"⚠ نمی‌توانم نقش را به {players[pid]} ارسال کنم.")
 
-    text = "📜 نقش‌ها برای بازیکنان:\n"
-    for pid, role in zip(player_ids, shuffled_roles):
-        text += f"{players[pid]} → {role}\n"
-    await bot.send_message(moderator_id, text)
+    if moderator_id:
+        text = "📜 نقش‌ها برای بازیکنان:\n"
+        for pid, role in zip(player_ids, shuffled_roles):
+            text += f"{players[pid]} → {role}\n"
+        await bot.send_message(moderator_id, text)
+
     await callback.answer("✅ بازی شروع شد!")
 
     if turn_order:
         await start_turn(turn_order[0])
+
+
+# ======================
+# نکست نوبت
+# ======================
+@dp.callback_query_handler(lambda c: c.data.startswith("next_turn_"))
+async def next_turn_callback(callback: types.CallbackQuery):
+    global current_turn_index, turn_order, turn_timer_task
+
+    if turn_timer_task:
+        turn_timer_task.cancel()
+
+    player_id = int(callback.data.replace("next_turn_", ""))
+
+    if callback.from_user.id != moderator_id and callback.from_user.id != player_id:
+        await callback.answer("❌ فقط بازیکن یا گرداننده می‌تواند نوبت را پایان دهد.", show_alert=True)
+        return
+
+    current_turn_index += 1
+    if current_turn_index < len(turn_order):
+        await start_turn(turn_order[current_turn_index])
+    else:
+        if not group_chat_id:
+            await callback.answer("⚠ شناسه گروه پیدا نشد.", show_alert=True)
+            return
+        await bot.send_message(group_chat_id, "✅ همه بازیکنان صحبت کردند. فاز روز پایان یافت.")
+
+    await callback.answer()
+
 
 # ======================
 # شروع نوبت + تایمر
@@ -478,11 +514,56 @@ async def start_turn(player_id, duration=120):
     turn_timer_task = asyncio.create_task(countdown())
 
 # ======================
-# نکست
+# شروع بازی و نوبت اول
+# ======================
+@dp.callback_query_handler(lambda c: c.data == "start_play")
+async def start_play(callback: types.CallbackQuery):
+    global turn_order, current_turn_index, group_chat_id
+
+    if callback.from_user.id != moderator_id:
+        await callback.answer("❌ فقط گرداننده می‌تواند بازی را شروع کند.", show_alert=True)
+        return
+
+    if not group_chat_id:
+        group_chat_id = callback.message.chat.id
+
+    roles = scenarios[selected_scenario]["roles"]
+    if len(players) < len(roles):
+        await callback.answer(f"❌ تعداد بازیکنان کافی نیست! حداقل {len(roles)} نفر نیاز است.", show_alert=True)
+        return
+
+    shuffled_roles = random.sample(roles, len(players))
+    player_ids = list(players.keys())
+    turn_order = player_ids.copy()
+    random.shuffle(turn_order)
+    current_turn_index = 0
+
+    for pid, role in zip(player_ids, shuffled_roles):
+        try:
+            await bot.send_message(pid, f"🎭 نقش شما: {role}")
+        except:
+            if moderator_id:
+                await bot.send_message(moderator_id, f"⚠ نمی‌توانم نقش را به {players[pid]} ارسال کنم.")
+
+    if moderator_id:
+        text = "📜 نقش‌ها برای بازیکنان:\n"
+        for pid, role in zip(player_ids, shuffled_roles):
+            text += f"{players[pid]} → {role}\n"
+        await bot.send_message(moderator_id, text)
+
+    await callback.answer("✅ بازی شروع شد!")
+
+    if turn_order:
+        await start_turn(turn_order[0])
+
+
+# ======================
+# نکست نوبت
 # ======================
 @dp.callback_query_handler(lambda c: c.data.startswith("next_turn_"))
 async def next_turn_callback(callback: types.CallbackQuery):
     global current_turn_index, turn_order, turn_timer_task
+
     if turn_timer_task:
         turn_timer_task.cancel()
 
@@ -496,24 +577,12 @@ async def next_turn_callback(callback: types.CallbackQuery):
     if current_turn_index < len(turn_order):
         await start_turn(turn_order[current_turn_index])
     else:
+        if not group_chat_id:
+            await callback.answer("⚠ شناسه گروه پیدا نشد.", show_alert=True)
+            return
         await bot.send_message(group_chat_id, "✅ همه بازیکنان صحبت کردند. فاز روز پایان یافت.")
+
     await callback.answer()
-
-
-async def reset_game_state():
-    global players, player_slots, game_running, selected_scenario, moderator_id, lobby_message_id, turn_order, current_turn_index, current_turn_message_id, turn_timer_task
-    players.clear()
-    player_slots.clear()
-    game_running = False
-    selected_scenario = None
-    moderator_id = None
-    lobby_message_id = None
-    turn_order.clear()
-    current_turn_index = 0
-    current_turn_message_id = None
-    if turn_timer_task:
-        turn_timer_task.cancel()
-        turn_timer_task = None
 
 
 # ======================
