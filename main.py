@@ -203,15 +203,18 @@ async def back_main(callback: types.CallbackQuery):
 # ======================
 @dp.callback_query_handler(lambda c: c.data == "choose_scenario")
 async def choose_scenario(callback: types.CallbackQuery):
+    # ابتدا بررسی کن که بازی در جریان است
+    if game_running:
+        await callback.answer("❌ بازی در جریان است. نمی‌توانید سناریو تغییر دهید.", show_alert=True)
+        return
+
+    # سپس کیبورد را بساز و پیام را ویرایش کن
     kb = InlineKeyboardMarkup(row_width=1)
     for scen in scenarios:
         kb.add(InlineKeyboardButton(scen, callback_data=f"scenario_{scen}"))
     await callback.message.edit_text("📝 یک سناریو انتخاب کنید:", reply_markup=kb)
     await callback.answer()
 
-if game_running:
-    await callback.answer("❌ بازی در جریان است. نمی‌توانید سناریو تغییر دهید.", show_alert=True)
-    return
 
 @dp.callback_query_handler(lambda c: c.data.startswith("scenario_"))
 async def scenario_selected(callback: types.CallbackQuery):
@@ -225,6 +228,11 @@ async def scenario_selected(callback: types.CallbackQuery):
 
 @dp.callback_query_handler(lambda c: c.data == "choose_moderator")
 async def choose_moderator(callback: types.CallbackQuery):
+
+    if game_running:
+        await callback.answer("❌ بازی در جریان است. نمی‌توانید گرداننده تغییر دهید.", show_alert=True)
+        return
+    
     kb = InlineKeyboardMarkup(row_width=1)
     for admin_id in admins:
         member = await bot.get_chat_member(group_chat_id, admin_id)
@@ -232,9 +240,7 @@ async def choose_moderator(callback: types.CallbackQuery):
     await callback.message.edit_text("🎩 یک گرداننده انتخاب کنید:", reply_markup=kb)
     await callback.answer()
 
-if game_running:
-    await callback.answer("❌ بازی در جریان است. نمی‌توانید گرداننده تغییر دهید.", show_alert=True)
-    return
+
 
 @dp.callback_query_handler(lambda c: c.data.startswith("moderator_"))
 async def moderator_selected(callback: types.CallbackQuery):
