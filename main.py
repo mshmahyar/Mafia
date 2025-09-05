@@ -233,8 +233,11 @@ async def leave_game_callback(callback: types.CallbackQuery):
 # ======================
 async def update_lobby():
     global lobby_message_id
+
     if not group_chat_id or not lobby_message_id:
         return
+
+    # متن لابی
     text = f"📋 **لیست بازی:**\n"
     text += f"سناریو: {selected_scenario}\n"
     text += f"گرداننده: {(await bot.get_chat_member(group_chat_id, moderator_id)).user.full_name if moderator_id else 'انتخاب نشده'}\n\n"
@@ -245,20 +248,27 @@ async def update_lobby():
     else:
         text += "هیچ بازیکنی وارد بازی نشده است.\n"
 
+    # شرایط سناریو
     min_players = scenarios[selected_scenario]["min_players"] if selected_scenario else 0
-    max_players = scenarios[selected_scenario]["max_players"] if selected_scenario else 100
-kb = join_menu()
+    max_players = scenarios[selected_scenario]["max_players"] if selected_scenario and "max_players" in scenarios[selected_scenario] else 100
 
-if selected_scenario and moderator_id:
-    if len(players) >= min_players and len(players) <= max_players:
-        kb.add(InlineKeyboardButton("▶ شروع بازی", callback_data="start_play"))
-    elif len(players) > max_players:
-        text += "\n⚠️ تعداد بازیکنان بیش از ظرفیت این سناریو است."
+    # دکمه‌ها
+    kb = join_menu()  # همیشه ورود/خروج وجود داشته باشه
+    if selected_scenario and moderator_id:
+        if min_players <= len(players) <= max_players:
+            kb.add(InlineKeyboardButton("▶ شروع بازی", callback_data="start_play"))
+        elif len(players) > max_players:
+            text += "\n⚠️ تعداد بازیکنان بیش از ظرفیت این سناریو است."
 
-
+    # ویرایش پیام لابی
     await bot.edit_message_text(
-        text, chat_id=group_chat_id, message_id=lobby_message_id, reply_markup=kb, parse_mode="Markdown"
+        text,
+        chat_id=group_chat_id,
+        message_id=lobby_message_id,
+        reply_markup=kb,
+        parse_mode="Markdown"
     )
+
 
 # ======================
 # شروع بازی و نوبت اول
