@@ -1,63 +1,55 @@
 import os
-import logging
-import asyncio
 import json
 import random
+import asyncio
+import logging
 from aiogram import Bot, Dispatcher, types
-from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, ParseMode
+from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.utils import executor
 
 # ======================
-# توکن ربات
+# تنظیمات ربات
 # ======================
 API_TOKEN = os.getenv("API_TOKEN")
 if not API_TOKEN:
     raise ValueError("API_TOKEN environment variable is not set!")
 
-# ======================
-# لاگینگ و کانفیگ
-# ======================
 logging.basicConfig(level=logging.INFO)
-bot = Bot(token=API_TOKEN)
+bot = Bot(token=API_TOKEN, parse_mode="HTML")
 dp = Dispatcher(bot)
 
 # ======================
-# دیتاهای بازی
+# متغیرهای سراسری
 # ======================
-game_running = False
-lobby_message_id = None
+players = {}                # بازیکنان: {user_id: name}
+moderator_id = None         # آیدی گرداننده
+selected_scenario = None    # سناریوی انتخابی
+scenarios = {}              # لیست سناریوها
+lobby_message_id = None     # پیام لابی
 group_chat_id = None
-moderator_id = None
-selected_scenario = None
-players = {}  # {user_id: full_name}
-scenarios = {}  # سناریوها از فایل load خواهند شد
-current_turn_index = 0
-turn_order = []
-turn_task = None
-challenge_queue = []
-turn_time_seconds = 120  # زمان هر نوبت به ثانیه
-current_turn_message_id = None  # پیام پین شده نوبت فعلی
-turn_task = None  # تسک تایمر نوبت
-challenge_queue = []  # صف چالش‌ها
+admins = set()
+game_running = False
 
-
-SCENARIO_FILE = "scenarios.json"
+turn_order = []             # ترتیب نوبت‌ها
+current_turn_index = 0      # اندیس نوبت فعلی
+current_turn_message_id = None  # پیام پین شده برای نوبت
+turn_timer_task = None      # تسک تایمر نوبت
 
 # ======================
-# بارگذاری سناریوها
+# لود سناریوها
 # ======================
 def load_scenarios():
-    if not os.path.exists(SCENARIO_FILE):
-        with open(SCENARIO_FILE, "w", encoding="utf-8") as f:
-            json.dump({
-                "سناریو کلاسیک": {"min_players": 5, "roles": ["مافیا", "مافیا", "شهروند", "شهروند", "شهروند"]},
-                "سناریو ویژه": {"min_players": 6, "roles": ["مافیا", "مافیا", "شهروند", "شهروند", "شهروند", "کارآگاه"]}
-            }, f, ensure_ascii=False, indent=2)
-    with open(SCENARIO_FILE, "r", encoding="utf-8") as f:
-        return json.load(f)
+    try:
+        with open("scenarios.json", "r", encoding="utf-8") as f:
+            return json.load(f)
+    except FileNotFoundError:
+        return {
+            "سناریو کلاسیک": {"min_players": 5, "max_players": 10, "roles": ["مافیا", "مافیا", "شهروند", "شهروند", "شهروند"]},
+            "سناریو ویژه": {"min_players": 6, "max_players": 12, "roles": ["مافیا", "مافیا", "شهروند", "شهروند", "شهروند", "کارآگاه"]}
+        }
 
 def save_scenarios():
-    with open(SCENARIO_FILE, "w", encoding="utf-8") as f:
+    with open("scenarios.json", "w", encoding="utf-8") as f:
         json.dump(scenarios, f, ensure_ascii=False, indent=2)
 
 scenarios = load_scenarios()
@@ -65,31 +57,29 @@ scenarios = load_scenarios()
 # ======================
 # کیبوردها
 # ======================
-def main_menu():
+def main_menu_keyboard():
     kb = InlineKeyboardMarkup(row_width=1)
     kb.add(
         InlineKeyboardButton("🎮 بازی جدید", callback_data="new_game"),
-        InlineKeyboardButton("📝 مدیریت سناریو", callback_data="manage_scenarios"),
-        InlineKeyboardButton("ℹ راهنما", callback_data="help")
+        InlineKeyboardButton("⚙ مدیریت سناریو", callback_data="manage_scenarios"),
+        InlineKeyboardButton("📖 راهنما", callback_data="help")
     )
     return kb
 
-def game_menu():
+def game_menu_keyboard():
     kb = InlineKeyboardMarkup(row_width=2)
     kb.add(
         InlineKeyboardButton("📝 انتخاب سناریو", callback_data="choose_scenario"),
         InlineKeyboardButton("🎩 انتخاب گرداننده", callback_data="choose_moderator")
     )
-    kb.add(InlineKeyboardButton("🔙 بازگشت", callback_data="back_main"))
     return kb
 
 def join_menu():
     kb = InlineKeyboardMarkup(row_width=2)
     kb.add(
         InlineKeyboardButton("✅ ورود به بازی", callback_data="join_game"),
-        InlineKeyboardButton("❌ انصراف از بازی", callback_data="leave_game")
+        InlineKeyboardButton("❌ انصراف", callback_data="leave_game")
     )
-    kb.add(InlineKeyboardButton("🔙 بازگشت", callback_data="back_game"))
     return kb
 
 def turn_keyboard(player_id):
@@ -97,97 +87,52 @@ def turn_keyboard(player_id):
     kb.add(InlineKeyboardButton("⏭ نکست", callback_data=f"next_turn_{player_id}"))
     return kb
 
-async def start_turn(player_id, is_challenge=False, challenge_from=None, challenge_type=None):
-    global current_turn_message_id, turn_task
-
-    player_mention = f"[{players[player_id]}](tg://user?id={player_id})"
-    if is_challenge:
-        text = f"⏱ زمان: {turn_time_seconds} ثانیه\n" \
-               f"🎯 نوبت چالش {challenge_type} از {players[challenge_from]} است\n" \
-               f"بازیکن: {player_mention}"
-    else:
-        text = f"⏱ زمان: {turn_time_seconds} ثانیه\n" \
-               f"🗣 نوبت صحبت {player_mention} است"
-
-    msg = await bot.send_message(group_chat_id, text, reply_markup=turn_keyboard(player_id), parse_mode="Markdown")
-    current_turn_message_id = msg.message_id
-    await bot.pin_chat_message(group_chat_id, current_turn_message_id)
-
-    # تایمر زنده
-    async def countdown():
-        remaining = turn_time_seconds
-        while remaining > 0:
-            await asyncio.sleep(10)
-            remaining -= 10
-            try:
-                await bot.edit_message_text(
-                    f"⏱ زمان: {remaining} ثانیه\n" + text.split("\n", 1)[1],
-                    chat_id=group_chat_id,
-                    message_id=current_turn_message_id,
-                    reply_markup=turn_keyboard(player_id),
-                    parse_mode="Markdown"
-                )
-            except:
-                break
-
-    turn_task = asyncio.create_task(countdown())
-
-@dp.callback_query_handler(lambda c: c.data.startswith("next_turn_"))
-async def next_turn(callback: types.CallbackQuery):
-    global current_turn_index, turn_task
-
-    player_id = int(callback.data.replace("next_turn_", ""))
-    if callback.from_user.id != player_id and callback.from_user.id != moderator_id:
-        await callback.answer("❌ شما نمی‌توانید این نوبت را پایان دهید.", show_alert=True)
-        return
-
-    if turn_task:
-        turn_task.cancel()
-
-    await callback.answer("⏭ نوبت پایان یافت!")
-
-    # حرکت به نوبت بعدی
-    current_turn_index += 1
-    if current_turn_index < len(turn_order):
-        await start_turn(turn_order[current_turn_index])
-    else:
-        await bot.send_message(group_chat_id, "✅ همه نوبت‌ها پایان یافتند!")
-
-
 # ======================
-# منوی اصلی
+# دستورات اصلی
 # ======================
 @dp.message_handler(commands=["start"])
-async def start(message: types.Message):
-    await message.reply("🎲 خوش آمدید! منوی اصلی:", reply_markup=main_menu())
+async def start_cmd(message: types.Message):
+    await message.reply("🏠 منوی اصلی:", reply_markup=main_menu_keyboard())
 
-# ======================
-# مدیریت منوها
-# ======================
-@dp.callback_query_handler(lambda c: c.data == "back_main")
-async def back_main(callback: types.CallbackQuery):
-    await callback.message.edit_text("🎲 منوی اصلی:", reply_markup=main_menu())
-    await callback.answer()
-
-@dp.callback_query_handler(lambda c: c.data == "back_game")
-async def back_game(callback: types.CallbackQuery):
-    await callback.message.edit_text("🎮 منوی بازی:", reply_markup=game_menu())
-    await callback.answer()
-
-# ======================
-# شروع بازی جدید
-# ======================
 @dp.callback_query_handler(lambda c: c.data == "new_game")
-async def new_game(callback: types.CallbackQuery):
-    global game_running, lobby_message_id, group_chat_id, moderator_id, selected_scenario, players
+async def start_game(callback: types.CallbackQuery):
+    global group_chat_id, game_running, admins, lobby_message_id
     group_chat_id = callback.message.chat.id
     game_running = True
-    moderator_id = None
-    selected_scenario = None
-    players = {}
-    msg = await callback.message.edit_text("🎮 بازی جدید فعال شد! لطفا سناریو و گرداننده را انتخاب کنید.", reply_markup=game_menu())
+    admins = {member.user.id for member in await bot.get_chat_administrators(group_chat_id)}
+    msg = await callback.message.reply("🎮 بازی مافیا فعال شد!\nلطفا سناریو و گرداننده را انتخاب کنید:", reply_markup=game_menu_keyboard())
     lobby_message_id = msg.message_id
     await callback.answer()
+
+# ======================
+# مدیریت سناریو
+# ======================
+@dp.callback_query_handler(lambda c: c.data == "manage_scenarios")
+async def manage_scenarios(callback: types.CallbackQuery):
+    if callback.from_user.id not in admins:
+        await callback.answer("❌ فقط ادمین‌ها می‌توانند مدیریت سناریو کنند.", show_alert=True)
+        return
+    kb = InlineKeyboardMarkup(row_width=1)
+    kb.add(
+        InlineKeyboardButton("➕ افزودن سناریو", callback_data="add_scenario"),
+        InlineKeyboardButton("➖ حذف سناریو", callback_data="remove_scenario"),
+        InlineKeyboardButton("⬅ بازگشت", callback_data="back_main")
+    )
+    await callback.message.edit_text("⚙ مدیریت سناریو:", reply_markup=kb)
+
+@dp.callback_query_handler(lambda c: c.data == "help")
+async def show_help(callback: types.CallbackQuery):
+    try:
+        with open("help.txt", "r", encoding="utf-8") as f:
+            help_text = f.read()
+    except FileNotFoundError:
+        help_text = "⚠ فایل help.txt پیدا نشد."
+    kb = InlineKeyboardMarkup().add(InlineKeyboardButton("⬅ بازگشت", callback_data="back_main"))
+    await callback.message.edit_text(help_text, reply_markup=kb)
+
+@dp.callback_query_handler(lambda c: c.data == "back_main")
+async def back_main(callback: types.CallbackQuery):
+    await callback.message.edit_text("🏠 منوی اصلی:", reply_markup=main_menu_keyboard())
 
 # ======================
 # انتخاب سناریو و گرداننده
@@ -197,7 +142,6 @@ async def choose_scenario(callback: types.CallbackQuery):
     kb = InlineKeyboardMarkup(row_width=1)
     for scen in scenarios:
         kb.add(InlineKeyboardButton(scen, callback_data=f"scenario_{scen}"))
-    kb.add(InlineKeyboardButton("🔙 بازگشت", callback_data="back_game"))
     await callback.message.edit_text("📝 یک سناریو انتخاب کنید:", reply_markup=kb)
     await callback.answer()
 
@@ -205,17 +149,18 @@ async def choose_scenario(callback: types.CallbackQuery):
 async def scenario_selected(callback: types.CallbackQuery):
     global selected_scenario
     selected_scenario = callback.data.replace("scenario_", "")
-    await callback.message.edit_text(f"📝 سناریو انتخاب شد: {selected_scenario}\nحالا گرداننده را انتخاب کنید.", reply_markup=game_menu())
+    await callback.message.edit_text(
+        f"📝 سناریو انتخاب شد: {selected_scenario}\nحالا گرداننده را انتخاب کنید.",
+        reply_markup=game_menu_keyboard()
+    )
     await callback.answer()
 
 @dp.callback_query_handler(lambda c: c.data == "choose_moderator")
 async def choose_moderator(callback: types.CallbackQuery):
     kb = InlineKeyboardMarkup(row_width=1)
-    admins = {member.user.id for member in await bot.get_chat_administrators(group_chat_id)}
     for admin_id in admins:
         member = await bot.get_chat_member(group_chat_id, admin_id)
         kb.add(InlineKeyboardButton(member.user.full_name, callback_data=f"moderator_{admin_id}"))
-    kb.add(InlineKeyboardButton("🔙 بازگشت", callback_data="back_game"))
     await callback.message.edit_text("🎩 یک گرداننده انتخاب کنید:", reply_markup=kb)
     await callback.answer()
 
@@ -223,12 +168,15 @@ async def choose_moderator(callback: types.CallbackQuery):
 async def moderator_selected(callback: types.CallbackQuery):
     global moderator_id
     moderator_id = int(callback.data.replace("moderator_", ""))
-    member = await bot.get_chat_member(group_chat_id, moderator_id)
-    await callback.message.edit_text(f"🎩 گرداننده انتخاب شد: {member.user.full_name}\nحالا اعضا می‌توانند وارد بازی شوند یا انصراف دهند.", reply_markup=join_menu())
+    await callback.message.edit_text(
+        f"🎩 گرداننده انتخاب شد: {(await bot.get_chat_member(group_chat_id, moderator_id)).user.full_name}\n"
+        f"حالا اعضا می‌توانند وارد بازی شوند یا انصراف دهند.",
+        reply_markup=join_menu()
+    )
     await callback.answer()
 
 # ======================
-# ورود و انصراف از بازی
+# ورود و انصراف
 # ======================
 @dp.callback_query_handler(lambda c: c.data == "join_game")
 async def join_game_callback(callback: types.CallbackQuery):
@@ -254,9 +202,13 @@ async def leave_game_callback(callback: types.CallbackQuery):
 # بروزرسانی لابی
 # ======================
 async def update_lobby():
+    global lobby_message_id
     if not group_chat_id or not lobby_message_id:
         return
-    text = f"📋 **لیست بازی:**\nسناریو: {selected_scenario}\nگرداننده: {(await bot.get_chat_member(group_chat_id, moderator_id)).user.full_name if moderator_id else 'انتخاب نشده'}\n\n"
+    text = f"📋 **لیست بازی:**\n"
+    text += f"سناریو: {selected_scenario}\n"
+    text += f"گرداننده: {(await bot.get_chat_member(group_chat_id, moderator_id)).user.full_name if moderator_id else 'انتخاب نشده'}\n\n"
+
     if players:
         for uid, name in players.items():
             text += f"- {name}\n"
@@ -264,13 +216,21 @@ async def update_lobby():
         text += "هیچ بازیکنی وارد بازی نشده است.\n"
 
     min_players = scenarios[selected_scenario]["min_players"] if selected_scenario else 0
+    max_players = scenarios[selected_scenario]["max_players"] if selected_scenario else 100
     kb = join_menu()
-    if len(players) >= min_players and moderator_id:
-        kb = InlineKeyboardMarkup().add(InlineKeyboardButton("▶ شروع بازی", callback_data="start_play"))
-    await bot.edit_message_text(text, chat_id=group_chat_id, message_id=lobby_message_id, reply_markup=kb, parse_mode=ParseMode.MARKDOWN)
+
+    if selected_scenario and moderator_id:
+        if len(players) >= min_players and len(players) <= max_players:
+            kb.add(InlineKeyboardButton("▶ شروع بازی", callback_data="start_play"))
+        elif len(players) > max_players:
+            text += "\n⚠️ تعداد بازیکنان بیش از ظرفیت این سناریو است."
+
+    await bot.edit_message_text(
+        text, chat_id=group_chat_id, message_id=lobby_message_id, reply_markup=kb, parse_mode="Markdown"
+    )
 
 # ======================
-# شروع بازی و پخش نقش‌ها + شروع نوبت اول
+# شروع بازی و نوبت اول
 # ======================
 @dp.callback_query_handler(lambda c: c.data == "start_play")
 async def start_play(callback: types.CallbackQuery):
@@ -284,33 +244,78 @@ async def start_play(callback: types.CallbackQuery):
         await callback.answer(f"❌ تعداد بازیکنان کافی نیست! حداقل {len(roles)} نفر نیاز است.", show_alert=True)
         return
 
-    # تصادفی‌سازی نقش‌ها و نوبت‌ها
     shuffled_roles = random.sample(roles, len(players))
     player_ids = list(players.keys())
     turn_order = player_ids.copy()
     random.shuffle(turn_order)
     current_turn_index = 0
 
-    # ارسال نقش‌ها به بازیکنان
     for pid, role in zip(player_ids, shuffled_roles):
         try:
             await bot.send_message(pid, f"🎭 نقش شما: {role}")
         except:
             await bot.send_message(moderator_id, f"⚠ نمی‌توانم نقش را به {players[pid]} ارسال کنم.")
 
-    # اطلاع‌رسانی نقش‌ها به گرداننده
     text = "📜 نقش‌ها برای بازیکنان:\n"
     for pid, role in zip(player_ids, shuffled_roles):
         text += f"{players[pid]} → {role}\n"
     await bot.send_message(moderator_id, text)
-
     await callback.answer("✅ بازی شروع شد!")
 
-    # فراخوانی نوبت اول
     if turn_order:
         await start_turn(turn_order[0])
 
+# ======================
+# شروع نوبت + تایمر
+# ======================
+async def start_turn(player_id, duration=120):
+    global current_turn_message_id, turn_timer_task
+    mention = f"<a href='tg://user?id={player_id}'>{players[player_id]}</a>"
+    text = f"⏳ 00:{duration:02d}\n🎙 نوبت صحبت {mention} است. ({duration} ثانیه)"
+    msg = await bot.send_message(group_chat_id, text, reply_markup=turn_keyboard(player_id))
+    try:
+        await bot.pin_chat_message(group_chat_id, msg.message_id, disable_notification=True)
+    except:
+        pass
+    current_turn_message_id = msg.message_id
 
+    async def countdown():
+        nonlocal msg
+        remaining = duration
+        while remaining > 0:
+            await asyncio.sleep(10)
+            remaining -= 10
+            new_text = f"⏳ 00:{remaining:02d}\n🎙 نوبت صحبت {mention} است. ({remaining} ثانیه)"
+            try:
+                await bot.edit_message_text(new_text, chat_id=group_chat_id,
+                                            message_id=current_turn_message_id,
+                                            reply_markup=turn_keyboard(player_id))
+            except:
+                pass
+
+    turn_timer_task = asyncio.create_task(countdown())
+
+# ======================
+# نکست
+# ======================
+@dp.callback_query_handler(lambda c: c.data.startswith("next_turn_"))
+async def next_turn_callback(callback: types.CallbackQuery):
+    global current_turn_index, turn_order, turn_timer_task
+    if turn_timer_task:
+        turn_timer_task.cancel()
+
+    player_id = int(callback.data.replace("next_turn_", ""))
+
+    if callback.from_user.id != moderator_id and callback.from_user.id != player_id:
+        await callback.answer("❌ فقط بازیکن یا گرداننده می‌تواند نوبت را پایان دهد.", show_alert=True)
+        return
+
+    current_turn_index += 1
+    if current_turn_index < len(turn_order):
+        await start_turn(turn_order[current_turn_index])
+    else:
+        await bot.send_message(group_chat_id, "✅ همه بازیکنان صحبت کردند. فاز روز پایان یافت.")
+    await callback.answer()
 
 # ======================
 # استارتاپ
@@ -319,8 +324,5 @@ async def on_startup(dp):
     await bot.delete_webhook(drop_pending_updates=True)
     logging.info("Webhook deleted and ready for polling.")
 
-# ======================
-# اجرای ربات
-# ======================
 if __name__ == "__main__":
     executor.start_polling(dp, skip_updates=True, on_startup=on_startup)
