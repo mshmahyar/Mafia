@@ -269,7 +269,8 @@ async def update_lobby():
     # دکمه‌های جایگاه
     for i in range(1, max_players + 1):
         if i in player_slots and player_slots[i] in players:
-            kb.insert(InlineKeyboardButton(f"{i} ({players[player_slots[i]]])", callback_data=f"slot_{i}"))
+            kb.insert(InlineKeyboardButton(f"{i} ({players[player_slots[i]]})", callback_data=f"slot_{i}"))
+
         else:
             kb.insert(InlineKeyboardButton(str(i), callback_data=f"slot_{i}"))
 
