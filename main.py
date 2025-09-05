@@ -34,6 +34,8 @@ turn_order = []             # ترتیب نوبت‌ها
 current_turn_index = 0      # اندیس نوبت فعلی
 current_turn_message_id = None  # پیام پین شده برای نوبت
 turn_timer_task = None      # تسک تایمر نوبت
+player_slots = {}  # {slot_number: user_id}
+
 
 # ======================
 # لود سناریوها
@@ -244,16 +246,44 @@ async def update_lobby():
 
     if players:
         for uid, name in players.items():
-            text += f"- {name}\n"
+            # بررسی اگه بازیکن جایگاه داره
+            slot_num = None
+            for s, pid in player_slots.items():
+                if pid == uid:
+                    slot_num = s
+                    break
+            if slot_num:
+                text += f"- {name} 🎯 جایگاه {slot_num}\n"
+            else:
+                text += f"- {name}\n"
     else:
         text += "هیچ بازیکنی وارد بازی نشده است.\n"
 
     # شرایط سناریو
     min_players = scenarios[selected_scenario]["min_players"] if selected_scenario else 0
-    max_players = scenarios[selected_scenario]["max_players"] if selected_scenario and "max_players" in scenarios[selected_scenario] else 100
+    max_players = scenarios[selected_scenario]["max_players"] if selected_scenario and "max_players" in scenarios[selected_scenario] else 0
 
-    # دکمه‌ها
-    kb = join_menu()  # همیشه ورود/خروج وجود داشته باشه
+    # ساخت کیبورد
+    kb = InlineKeyboardMarkup(row_width=5)
+
+    # دکمه‌های جایگاه
+    for i in range(1, max_players + 1):
+        if i in player_slots and player_slots[i] in players:
+            kb.insert(InlineKeyboardButton(f"{i} ({players[player_slots[i]]])", callback_data=f"slot_{i}"))
+        else:
+            kb.insert(InlineKeyboardButton(str(i), callback_data=f"slot_{i}"))
+
+    # دکمه ورود/خروج
+    kb.row(
+        InlineKeyboardButton("✅ ورود به بازی", callback_data="join_game"),
+        InlineKeyboardButton("❌ خروج از بازی", callback_data="leave_game"),
+    )
+
+    # دکمه لغو بازی (فقط برای مدیران)
+    if moderator_id and moderator_id in admins:
+        kb.add(InlineKeyboardButton("🚫 لغو بازی", callback_data="cancel_game"))
+
+    # دکمه شروع بازی
     if selected_scenario and moderator_id:
         if min_players <= len(players) <= max_players:
             kb.add(InlineKeyboardButton("▶ شروع بازی", callback_data="start_play"))
@@ -268,6 +298,41 @@ async def update_lobby():
         reply_markup=kb,
         parse_mode="Markdown"
     )
+
+# ======================
+# لغو بازی توسط مدیران
+# ======================
+@dp.callback_query_handler(lambda c: c.data == "cancel_game")
+async def cancel_game(callback: types.CallbackQuery):
+    if callback.from_user.id not in admins:
+        await callback.answer("❌ فقط مدیران می‌توانند بازی را لغو کنند.", show_alert=True)
+        return
+    
+    kb = InlineKeyboardMarkup(row_width=2)
+    kb.add(
+        InlineKeyboardButton("✅ تایید", callback_data="confirm_cancel"),
+        InlineKeyboardButton("↩ بازگشت", callback_data="back_to_lobby"),
+    )
+    await callback.message.edit_text("آیا مطمئنید که می‌خواهید بازی را لغو کنید؟", reply_markup=kb)
+    await callback.answer()
+
+@dp.callback_query_handler(lambda c: c.data == "confirm_cancel")
+async def confirm_cancel(callback: types.CallbackQuery):
+    global players, player_slots, game_running, selected_scenario, moderator_id, lobby_message_id
+    players.clear()
+    player_slots.clear()
+    game_running = False
+    selected_scenario = None
+    moderator_id = None
+    lobby_message_id = None
+    await callback.message.edit_text("🚫 بازی لغو شد.")
+    await callback.answer()
+
+@dp.callback_query_handler(lambda c: c.data == "back_to_lobby")
+async def back_to_lobby(callback: types.CallbackQuery):
+    await update_lobby()
+    await callback.answer()
+
 
 
 # ======================
