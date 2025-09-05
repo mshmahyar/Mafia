@@ -209,6 +209,10 @@ async def choose_scenario(callback: types.CallbackQuery):
     await callback.message.edit_text("📝 یک سناریو انتخاب کنید:", reply_markup=kb)
     await callback.answer()
 
+if game_running:
+    await callback.answer("❌ بازی در جریان است. نمی‌توانید سناریو تغییر دهید.", show_alert=True)
+    return
+
 @dp.callback_query_handler(lambda c: c.data.startswith("scenario_"))
 async def scenario_selected(callback: types.CallbackQuery):
     global selected_scenario
@@ -228,6 +232,10 @@ async def choose_moderator(callback: types.CallbackQuery):
     await callback.message.edit_text("🎩 یک گرداننده انتخاب کنید:", reply_markup=kb)
     await callback.answer()
 
+if game_running:
+    await callback.answer("❌ بازی در جریان است. نمی‌توانید گرداننده تغییر دهید.", show_alert=True)
+    return
+
 @dp.callback_query_handler(lambda c: c.data.startswith("moderator_"))
 async def moderator_selected(callback: types.CallbackQuery):
     global moderator_id
@@ -245,22 +253,46 @@ async def moderator_selected(callback: types.CallbackQuery):
 @dp.callback_query_handler(lambda c: c.data == "join_game")
 async def join_game_callback(callback: types.CallbackQuery):
     user = callback.from_user
-    if user.id in players:
+
+        if game_running:
+    await callback.answer("❌ بازی در جریان است. نمی‌توانید وارد شوید.", show_alert=True)
+    return
+
+
+        if user.id in players:
         await callback.answer("❌ شما در لیست بازی هستید!", show_alert=True)
+        await callback.answer("❌ گرداننده نمی‌تواند وارد بازی شود.", show_alert=True)
         return
+
+
     players[user.id] = user.full_name
     await update_lobby()
     await callback.answer("✅ شما به بازی اضافه شدید!")
 
+
 @dp.callback_query_handler(lambda c: c.data == "leave_game")
 async def leave_game_callback(callback: types.CallbackQuery):
     user = callback.from_user
+
+    
+if game_running:
+    await callback.answer("❌ بازی در جریان است. نمی‌توانید خارج شوید.", show_alert=True)
+    return
+    
     if user.id not in players:
         await callback.answer("❌ شما در لیست بازی نیستید!", show_alert=True)
         return
     players.pop(user.id)
     await update_lobby()
     await callback.answer("✅ شما از بازی خارج شدید!")
+
+# در leave_game_callback بعد از players.pop(user.id)
+for slot, uid in list(player_slots.items()):
+    if uid == user.id:
+        del player_slots[slot]
+
+
+
 
 # ======================
 # بروزرسانی لابی
@@ -348,8 +380,19 @@ async def confirm_cancel(callback: types.CallbackQuery):
     selected_scenario = None
     moderator_id = None
     lobby_message_id = None
-    await callback.message.edit_text("🚫 بازی لغو شد.")
+
+    # یک بار ویرایش کن
+    msg = await callback.message.edit_text("🚫 بازی لغو شد.")
     await callback.answer()
+
+    # بعد ۵ ثانیه پاکش کن
+    await asyncio.sleep(5)
+    try:
+        await bot.delete_message(callback.message.chat.id, msg.message_id)
+    except:
+        pass
+
+
 
 @dp.callback_query_handler(lambda c: c.data == "back_to_lobby")
 async def back_to_lobby(callback: types.CallbackQuery):
@@ -382,7 +425,7 @@ async def start_play(callback: types.CallbackQuery):
     for pid, role in zip(player_ids, shuffled_roles):
         try:
             await bot.send_message(pid, f"🎭 نقش شما: {role}")
-        except:
+        except (BotBlocked, ChatNotFound):
             await bot.send_message(moderator_id, f"⚠ نمی‌توانم نقش را به {players[pid]} ارسال کنم.")
 
     text = "📜 نقش‌ها برای بازیکنان:\n"
@@ -400,7 +443,7 @@ async def start_play(callback: types.CallbackQuery):
 async def start_turn(player_id, duration=120):
     global current_turn_message_id, turn_timer_task
     mention = f"<a href='tg://user?id={player_id}'>{players[player_id]}</a>"
-    text = f"⏳ 00:{duration:02d}\n🎙 نوبت صحبت {mention} است. ({duration} ثانیه)"
+    text = f"⏳ {duration//60:02d}:{duration%60:02d}\n🎙 نوبت صحبت {mention} است. ({duration} ثانیه)"
     msg = await bot.send_message(group_chat_id, text, reply_markup=turn_keyboard(player_id))
     try:
         await bot.pin_chat_message(group_chat_id, msg.message_id, disable_notification=True)
@@ -414,7 +457,7 @@ async def start_turn(player_id, duration=120):
         while remaining > 0:
             await asyncio.sleep(10)
             remaining -= 10
-            new_text = f"⏳ 00:{remaining:02d}\n🎙 نوبت صحبت {mention} است. ({remaining} ثانیه)"
+            new_text = f"⏳ {remaining//60:02d}:{remaining%60:02d}\n🎙 نوبت صحبت {mention} است. ({remaining} ثانیه)"
             try:
                 await bot.edit_message_text(new_text, chat_id=group_chat_id,
                                             message_id=current_turn_message_id,
@@ -445,6 +488,23 @@ async def next_turn_callback(callback: types.CallbackQuery):
     else:
         await bot.send_message(group_chat_id, "✅ همه بازیکنان صحبت کردند. فاز روز پایان یافت.")
     await callback.answer()
+
+
+async def reset_game_state():
+    global players, player_slots, game_running, selected_scenario, moderator_id, lobby_message_id, turn_order, current_turn_index, current_turn_message_id, turn_timer_task
+    players.clear()
+    player_slots.clear()
+    game_running = False
+    selected_scenario = None
+    moderator_id = None
+    lobby_message_id = None
+    turn_order.clear()
+    current_turn_index = 0
+    current_turn_message_id = None
+    if turn_timer_task:
+        turn_timer_task.cancel()
+        turn_timer_task = None
+
 
 # ======================
 # استارتاپ
