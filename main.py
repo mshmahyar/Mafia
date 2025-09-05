@@ -254,16 +254,20 @@ async def moderator_selected(callback: types.CallbackQuery):
 async def join_game_callback(callback: types.CallbackQuery):
     user = callback.from_user
 
-        if game_running:
-    await callback.answer("❌ بازی در جریان است. نمی‌توانید وارد شوید.", show_alert=True)
-    return
+    # جلوگیری از ورود در حین بازی
+    if game_running:
+        await callback.answer("❌ بازی در جریان است. نمی‌توانید وارد شوید.", show_alert=True)
+        return
 
-
-        if user.id in players:
-        await callback.answer("❌ شما در لیست بازی هستید!", show_alert=True)
+    # جلوگیری از ورود گرداننده
+    if user.id == moderator_id:
         await callback.answer("❌ گرداننده نمی‌تواند وارد بازی شود.", show_alert=True)
         return
 
+    # جلوگیری از ورود دوباره بازیکن
+    if user.id in players:
+        await callback.answer("❌ شما در لیست بازی هستید!", show_alert=True)
+        return
 
     players[user.id] = user.full_name
     await update_lobby()
@@ -274,24 +278,24 @@ async def join_game_callback(callback: types.CallbackQuery):
 async def leave_game_callback(callback: types.CallbackQuery):
     user = callback.from_user
 
-    
-if game_running:
-    await callback.answer("❌ بازی در جریان است. نمی‌توانید خارج شوید.", show_alert=True)
-    return
-    
+    # جلوگیری از خروج در حین بازی
+    if game_running:
+        await callback.answer("❌ بازی در جریان است. نمی‌توانید خارج شوید.", show_alert=True)
+        return
+
     if user.id not in players:
         await callback.answer("❌ شما در لیست بازی نیستید!", show_alert=True)
         return
+
     players.pop(user.id)
+
+    # آزاد کردن صندلی اگر انتخاب کرده بود
+    for slot, uid in list(player_slots.items()):
+        if uid == user.id:
+            del player_slots[slot]
+
     await update_lobby()
     await callback.answer("✅ شما از بازی خارج شدید!")
-
-# در leave_game_callback بعد از players.pop(user.id)
-for slot, uid in list(player_slots.items()):
-    if uid == user.id:
-        del player_slots[slot]
-
-
 
 
 # ======================
