@@ -120,6 +120,36 @@ async def manage_scenarios(callback: types.CallbackQuery):
     )
     await callback.message.edit_text("⚙ مدیریت سناریو:", reply_markup=kb)
 
+# افزودن سناریو
+@dp.callback_query_handler(lambda c: c.data == "add_scenario")
+async def add_scenario(callback: types.CallbackQuery):
+    await callback.message.edit_text(
+        "➕ برای افزودن سناریو جدید، فایل <b>scenarios.json</b> را ویرایش کنید و ربات را ری‌استارت کنید.",
+        reply_markup=InlineKeyboardMarkup().add(InlineKeyboardButton("⬅ بازگشت", callback_data="manage_scenarios"))
+    )
+    await callback.answer()
+
+# حذف سناریو
+@dp.callback_query_handler(lambda c: c.data == "remove_scenario")
+async def remove_scenario(callback: types.CallbackQuery):
+    kb = InlineKeyboardMarkup(row_width=1)
+    for scen in scenarios:
+        kb.add(InlineKeyboardButton(f"❌ {scen}", callback_data=f"delete_scen_{scen}"))
+    kb.add(InlineKeyboardButton("⬅ بازگشت", callback_data="manage_scenarios"))
+    await callback.message.edit_text("یک سناریو را برای حذف انتخاب کنید:", reply_markup=kb)
+    await callback.answer()
+
+@dp.callback_query_handler(lambda c: c.data.startswith("delete_scen_"))
+async def delete_scenario(callback: types.CallbackQuery):
+    scen = callback.data.replace("delete_scen_", "")
+    if scen in scenarios:
+        scenarios.pop(scen)
+        save_scenarios()
+        await callback.message.edit_text(f"✅ سناریو «{scen}» حذف شد.", reply_markup=main_menu_keyboard())
+    else:
+        await callback.answer("⚠ این سناریو وجود ندارد.", show_alert=True)
+
+
 @dp.callback_query_handler(lambda c: c.data == "help")
 async def show_help(callback: types.CallbackQuery):
     try:
@@ -217,13 +247,14 @@ async def update_lobby():
 
     min_players = scenarios[selected_scenario]["min_players"] if selected_scenario else 0
     max_players = scenarios[selected_scenario]["max_players"] if selected_scenario else 100
-    kb = join_menu()
+kb = join_menu()
 
-    if selected_scenario and moderator_id:
-        if len(players) >= min_players and len(players) <= max_players:
-            kb.add(InlineKeyboardButton("▶ شروع بازی", callback_data="start_play"))
-        elif len(players) > max_players:
-            text += "\n⚠️ تعداد بازیکنان بیش از ظرفیت این سناریو است."
+if selected_scenario and moderator_id:
+    if len(players) >= min_players and len(players) <= max_players:
+        kb.add(InlineKeyboardButton("▶ شروع بازی", callback_data="start_play"))
+    elif len(players) > max_players:
+        text += "\n⚠️ تعداد بازیکنان بیش از ظرفیت این سناریو است."
+
 
     await bot.edit_message_text(
         text, chat_id=group_chat_id, message_id=lobby_message_id, reply_markup=kb, parse_mode="Markdown"
