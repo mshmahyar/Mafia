@@ -28,14 +28,14 @@ scenarios = {}              # لیست سناریوها
 lobby_message_id = None     # پیام لابی
 group_chat_id = None
 admins = set()
-game_running = False
+game_running = False     # وقتی بازی واقعاً شروع شده است (نقش‌ها ارسال شدند)
+lobby_active = False     # وقتی لابی فعال است (انتخاب سناریو و گرداننده)
 
 turn_order = []             # ترتیب نوبت‌ها
 current_turn_index = 0      # اندیس نوبت فعلی
 current_turn_message_id = None  # پیام پین شده برای نوبت
 turn_timer_task = None      # تسک تایمر نوبت
 player_slots = {}  # {slot_number: user_id}
-
 
 # ======================
 # لود سناریوها
@@ -130,11 +130,14 @@ async def start_cmd(message: types.Message):
 
 @dp.callback_query_handler(lambda c: c.data == "new_game")
 async def start_game(callback: types.CallbackQuery):
-    global group_chat_id, game_running, admins, lobby_message_id
+    global group_chat_id, lobby_active, admins, lobby_message_id
     group_chat_id = callback.message.chat.id
-    game_running = True
+    lobby_active = True    # فقط لابی فعال، بازی هنوز شروع نشده
     admins = {member.user.id for member in await bot.get_chat_administrators(group_chat_id)}
-    msg = await callback.message.reply("🎮 بازی مافیا فعال شد!\nلطفا سناریو و گرداننده را انتخاب کنید:", reply_markup=game_menu_keyboard())
+    msg = await callback.message.reply(
+        "🎮 بازی مافیا فعال شد!\nلطفا سناریو و گرداننده را انتخاب کنید:",
+        reply_markup=game_menu_keyboard()
+    )
     lobby_message_id = msg.message_id
     await callback.answer()
 
@@ -203,12 +206,12 @@ async def back_main(callback: types.CallbackQuery):
 # ======================
 @dp.callback_query_handler(lambda c: c.data == "choose_scenario")
 async def choose_scenario(callback: types.CallbackQuery):
-    # ابتدا بررسی کن که بازی در جریان است
-    if game_running:
-        await callback.answer("❌ بازی در جریان است. نمی‌توانید سناریو تغییر دهید.", show_alert=True)
+    global lobby_active
+
+    if not lobby_active:
+        await callback.answer("❌ هیچ بازی فعالی برای انتخاب سناریو وجود ندارد.", show_alert=True)
         return
 
-    # سپس کیبورد را بساز و پیام را ویرایش کن
     kb = InlineKeyboardMarkup(row_width=1)
     for scen in scenarios:
         kb.add(InlineKeyboardButton(scen, callback_data=f"scenario_{scen}"))
@@ -228,17 +231,19 @@ async def scenario_selected(callback: types.CallbackQuery):
 
 @dp.callback_query_handler(lambda c: c.data == "choose_moderator")
 async def choose_moderator(callback: types.CallbackQuery):
+    global lobby_active
 
-    if game_running:
-        await callback.answer("❌ بازی در جریان است. نمی‌توانید گرداننده تغییر دهید.", show_alert=True)
+    if not lobby_active:
+        await callback.answer("❌ هیچ بازی فعالی برای انتخاب گرداننده وجود ندارد.", show_alert=True)
         return
-    
+
     kb = InlineKeyboardMarkup(row_width=1)
     for admin_id in admins:
         member = await bot.get_chat_member(group_chat_id, admin_id)
         kb.add(InlineKeyboardButton(member.user.full_name, callback_data=f"moderator_{admin_id}"))
     await callback.message.edit_text("🎩 یک گرداننده انتخاب کنید:", reply_markup=kb)
     await callback.answer()
+
 
 
 
@@ -416,7 +421,7 @@ async def back_to_lobby(callback: types.CallbackQuery):
 # ======================
 @dp.callback_query_handler(lambda c: c.data == "start_play")
 async def start_play(callback: types.CallbackQuery):
-    global turn_order, current_turn_index, group_chat_id
+    global game_running, lobby_active, turn_order, current_turn_index, group_chat_id
 
     if callback.from_user.id != moderator_id:
         await callback.answer("❌ فقط گرداننده می‌تواند بازی را شروع کند.", show_alert=True)
@@ -430,12 +435,17 @@ async def start_play(callback: types.CallbackQuery):
         await callback.answer(f"❌ تعداد بازیکنان کافی نیست! حداقل {len(roles)} نفر نیاز است.", show_alert=True)
         return
 
+    # بازی واقعاً شروع شد
+    game_running = True
+    lobby_active = False
+
     shuffled_roles = random.sample(roles, len(players))
     player_ids = list(players.keys())
     turn_order = player_ids.copy()
     random.shuffle(turn_order)
     current_turn_index = 0
 
+    # ارسال نقش‌ها به بازیکنان
     for pid, role in zip(player_ids, shuffled_roles):
         try:
             await bot.send_message(pid, f"🎭 نقش شما: {role}")
