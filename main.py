@@ -84,6 +84,38 @@ def join_menu():
     )
     return kb
 
+# ======================
+# انتخاب / لغو انتخاب صندلی
+# ======================
+@dp.callback_query_handler(lambda c: c.data.startswith("slot_"))
+async def handle_slot(callback: types.CallbackQuery):
+    global player_slots
+    if not selected_scenario:
+        await callback.answer("❌ هنوز سناریویی انتخاب نشده.", show_alert=True)
+        return
+    
+    slot_num = int(callback.data.replace("slot_", ""))
+    user_id = callback.from_user.id
+
+    # اگه همون بازیکن دوباره بزنه → لغو انتخاب
+    if slot_num in player_slots and player_slots[slot_num] == user_id:
+        del player_slots[slot_num]
+        await callback.answer(f"جایگاه {slot_num} آزاد شد ✅")
+    else:
+        # اگه جایگاه پر باشه
+        if slot_num in player_slots:
+            await callback.answer("❌ این جایگاه قبلاً انتخاب شده.", show_alert=True)
+            return
+        # اگه بازیکن قبلاً جای دیگه نشسته → اون رو آزاد کن
+        for s, uid in list(player_slots.items()):
+            if uid == user_id:
+                del player_slots[s]
+        player_slots[slot_num] = user_id
+        await callback.answer(f"شما جایگاه {slot_num} را انتخاب کردید ✅")
+
+    await update_lobby()
+
+
 def turn_keyboard(player_id):
     kb = InlineKeyboardMarkup(row_width=1)
     kb.add(InlineKeyboardButton("⏭ نکست", callback_data=f"next_turn_{player_id}"))
