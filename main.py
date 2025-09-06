@@ -42,6 +42,20 @@ paused_main_duration = None # (اختیاری) مدت زمان نوبت اصلی
 DEFAULT_TURN_DURATION = 120  # مقدار پیش‌فرض نوبت اصلی (در صورت تمایل تغییر بده)
 challenges = {}  # {player_id: {"type": "before"/"after", "challenger": user_id}}
 challenge_active = False
+game_running = False
+roles = {}  # نقش‌ها به هر بازیکن
+leader_id = None  #سر صحبت
+turn_order = []  لنتخاب سر صحبت
+challenge_disabled = False
+challenge_disabled_permanent = False
+selected_head = None  # بازیکن سر صحبت
+talk_order = []       # ترتیب نوبت‌ها
+current_turn_index = 0  # ایندکس نفر فعلی در talk_order
+spoken_players = set()
+turn_start_time = None
+game_phase = "day"  # یا "night"
+
+
 
 # ======================
 # لود سناریوها
@@ -74,21 +88,19 @@ def main_menu_keyboard():
     )
     return kb
 
-def game_menu_keyboard():
+def lobby_keyboard():
     kb = InlineKeyboardMarkup(row_width=2)
     kb.add(
         InlineKeyboardButton("📝 انتخاب سناریو", callback_data="choose_scenario"),
-        InlineKeyboardButton("🎩 انتخاب گرداننده", callback_data="choose_moderator")
+        InlineKeyboardButton("🎩 انتخاب گرداننده", callback_data="choose_moderator"),
+        InlineKeyboardButton("🎭 پخش نقش‌ها", callback_data="distribute_roles"),
+    )
+    kb.add(
+        InlineKeyboardButton("🚪 خروج", callback_data="leave_game"),
+        InlineKeyboardButton("❌ لغو بازی", callback_data="cancel_game"),
     )
     return kb
 
-def join_menu():
-    kb = InlineKeyboardMarkup(row_width=2)
-    kb.add(
-        InlineKeyboardButton("✅ ورود به بازی", callback_data="join_game"),
-        InlineKeyboardButton("❌ انصراف", callback_data="leave_game")
-    )
-    return kb
 
 # ======================
 # انتخاب / لغو انتخاب صندلی
@@ -122,12 +134,10 @@ async def handle_slot(callback: types.CallbackQuery):
     await update_lobby()
 
 
-def turn_keyboard(player_id, is_challenge=False):
-    kb = InlineKeyboardMarkup(row_width=1)
+def turn_keyboard(player_id):
+    kb = InlineKeyboardMarkup()
     kb.add(InlineKeyboardButton("⏭ نکست", callback_data=f"next_{player_id}"))
-    # در حالت چالش گزینه درخواست چالش نمایش داده نمی‌شود
-    if not is_challenge:
-        kb.add(InlineKeyboardButton("⚔ درخواست چالش", callback_data=f"challenge_request_{player_id}"))
+    kb.add(InlineKeyboardButton("⚔ درخواست چالش", callback_data=f"challenge_request_{player_id}"))
     return kb
 
 
@@ -267,6 +277,237 @@ async def moderator_selected(callback: types.CallbackQuery):
         reply_markup=join_menu()
     )
     await callback.answer()
+
+#===============
+# پخش نقش
+#===============
+
+@dp.callback_query_handler(lambda c: c.data == "distribute_roles")
+async def distribute_roles(callback: types.CallbackQuery):
+    global game_running, roles, players, moderator_id
+
+    if callback.from_user.id != moderator_id:
+        await callback.answer("❌ فقط گرداننده می‌تواند نقش‌ها را پخش کند.", show_alert=True)
+        return
+
+    if game_running:
+        await callback.answer("❌ نقش‌ها قبلاً پخش شده‌اند.", show_alert=True)
+        return
+
+    if not players:
+        await callback.answer("❌ هیچ بازیکنی در بازی وجود ندارد.", show_alert=True)
+        return
+
+    # فعال کردن وضعیت بازی
+    game_running = True
+    pending_challenges.clear()
+    paused_main_player = None
+    paused_main_challenger = None
+
+    # پخش نقش‌ها (اینجا منطق واقعی نقش‌پخشیت باید بیاد)
+    for uid, name in players.items():
+        role = "🔑 نقش تستی"  # TODO: منطق واقعی نقش‌ها
+        try:
+            await bot.send_message(uid, f"🎭 نقش شما: {role}")
+        except:
+            pass  # اگر استارت نکرده بود
+
+    # منوی بعد از پخش نقش‌ها
+    kb = InlineKeyboardMarkup(row_width=2)
+    kb.add(
+        InlineKeyboardButton("🎯 انتخاب سر صحبت", callback_data="choose_leader"),
+        InlineKeyboardButton("⚔ چالش آف", callback_data="challenge_off"),
+        InlineKeyboardButton("🛡 تک‌چالش آف", callback_data="single_challenge_off"),
+    )
+    kb.add(InlineKeyboardButton("▶ شروع دور", callback_data="start_round"))
+
+    await callback.message.edit_text(
+        "🚀 نقش‌ها پخش شدند!\n\n"
+        "🎭 نقش‌ها در پیوی بازیکنان ارسال شدند.\n"
+        "برای دیدن نقش خودتون به پیوی ربات برید.\n\n"
+        "📌 هرکی نقششو گرفت لایک کنه.\n"
+        "❗ اگر نقشتون نیومد احتمالاً ربات رو استارت نکردید.",
+        reply_markup=kb
+    )
+
+    await callback.answer()
+
+
+# انتخاب سر صحبت
+@dp.callback_query_handler(lambda c: c.data == "choose_leader")
+async def choose_leader(callback: types.CallbackQuery):
+    global players
+
+    if callback.from_user.id != moderator_id:
+        await callback.answer("❌ فقط گرداننده می‌تواند سر صحبت را انتخاب کند.", show_alert=True)
+        return
+
+    kb = InlineKeyboardMarkup(row_width=2)
+    kb.add(InlineKeyboardButton("🎲 انتخاب تصادفی", callback_data="random_leader"))
+
+    for uid, name in players.items():
+        kb.add(InlineKeyboardButton(name, callback_data=f"set_leader_{uid}"))
+
+    await callback.message.edit_text("👑 یک نفر را به عنوان سر صحبت انتخاب کنید:", reply_markup=kb)
+    await callback.answer()
+
+
+@dp.callback_query_handler(lambda c: c.data.startswith("set_leader_"))
+async def set_leader(callback: types.CallbackQuery):
+    global leader_id, turn_order, players
+
+    if callback.from_user.id != moderator_id:
+        await callback.answer("❌ فقط گرداننده می‌تواند سر صحبت را انتخاب کند.", show_alert=True)
+        return
+
+    leader_id = int(callback.data.split("_")[2])
+
+    # ترتیب نوبت‌ها از سر صحبت تا آخر + ادامه لیست
+    all_players = list(players.keys())
+    idx = all_players.index(leader_id)
+    turn_order = all_players[idx:] + all_players[:idx]
+
+    await callback.message.edit_text(
+        f"👑 <b>{players[leader_id]}</b> به عنوان سر صحبت انتخاب شد.\n"
+        "✅ ترتیب نوبت‌ها بر اساس انتخاب مشخص گردید.",
+        reply_markup=start_round_keyboard()
+    )
+    await callback.answer()
+
+
+@dp.callback_query_handler(lambda c: c.data == "random_leader")
+async def random_leader(callback: types.CallbackQuery):
+    global leader_id, turn_order, players
+
+    if callback.from_user.id != moderator_id:
+        await callback.answer("❌ فقط گرداننده می‌تواند سر صحبت را انتخاب کند.", show_alert=True)
+        return
+
+    leader_id = random.choice(list(players.keys()))
+
+    all_players = list(players.keys())
+    idx = all_players.index(leader_id)
+    turn_order = all_players[idx:] + all_players[:idx]
+
+    await callback.message.edit_text(
+        f"🎲 به صورت تصادفی 👑 <b>{players[leader_id]}</b> سر صحبت شد.\n"
+        "✅ ترتیب نوبت‌ها مشخص گردید.",
+        reply_markup=start_round_keyboard()
+    )
+    await callback.answer()
+
+@dp.callback_query_handler(lambda c: c.data == "challenge_off")
+async def challenge_off(callback: types.CallbackQuery):
+    if callback.from_user.id != moderator_id:
+        await callback.answer("❌ فقط گرداننده می‌تواند این گزینه را تغییر دهد.", show_alert=True)
+        return
+
+    kb = InlineKeyboardMarkup(row_width=1)
+    kb.add(
+        InlineKeyboardButton("🔕 برای این دور", callback_data="off_this_round"),
+        InlineKeyboardButton("🔕 برای کل بازی", callback_data="off_all_game"),
+    )
+    await callback.message.edit_text("⚔ چالش را برای کدام حالت غیرفعال می‌کنید؟", reply_markup=kb)
+    await callback.answer()
+
+
+@dp.callback_query_handler(lambda c: c.data in ["off_this_round", "off_all_game"])
+async def confirm_challenge_off(callback: types.CallbackQuery):
+    global challenge_disabled, challenge_disabled_permanent
+
+    if callback.data == "off_this_round":
+        challenge_disabled = True
+        challenge_disabled_permanent = False
+        msg = "🔕 چالش برای این دور غیرفعال شد."
+    else:
+        challenge_disabled = True
+        challenge_disabled_permanent = True
+        msg = "🔕 چالش برای کل بازی غیرفعال شد."
+
+    await update_main_game_menu(callback.message, msg)
+    await callback.answer()
+    
+# ======================
+# تک چالش آف
+# ======================
+@dp.callback_query_handler(lambda c: c.data == "single_challenge_off")
+async def single_challenge_off(callback: types.CallbackQuery):
+    if callback.from_user.id != moderator_id:
+        await callback.answer("❌ فقط گرداننده می‌تواند این گزینه را تغییر دهد.", show_alert=True)
+        return
+
+    global unlimited_challenges
+    unlimited_challenges = not unlimited_challenges  # سوییچ بین فعال/غیرفعال
+
+    if unlimited_challenges:
+        msg = "♾ حالت «تک چالش آف» فعال شد.\nبازیکنان می‌توانند بی‌نهایت چالش داشته باشند."
+    else:
+        msg = "✅ حالت «تک چالش آف» غیرفعال شد.\nهر بازیکن فقط یک چالش دارد."
+
+    await update_main_game_menu(callback.message, msg)
+    await callback.answer()
+
+
+# ======================
+# شروع دور صحبت
+# ======================
+@dp.callback_query_handler(lambda c: c.data == "start_round")
+async def start_round(callback: types.CallbackQuery):
+    global talk_order, current_turn_index
+
+    if callback.from_user.id != moderator_id:
+        await callback.answer("❌ فقط گرداننده می‌تواند دور را شروع کند.", show_alert=True)
+        return
+
+    if not selected_head:
+        await callback.answer("⚠️ ابتدا سر صحبت را انتخاب کنید.", show_alert=True)
+        return
+
+    # ساخت ترتیب نوبت‌ها
+    player_ids = list(players.keys())
+    start_index = player_ids.index(selected_head)
+    talk_order = player_ids[start_index:] + player_ids[:start_index]
+    current_turn_index = 0
+
+    await callback.message.edit_text("▶️ دور صحبت‌ها شروع شد!\n"
+                                     f"🎙 اولین نفر: {players[selected_head]}")
+
+# ======================
+# نکست → رفتن به نوبت بعدی
+# ======================
+@dp.callback_query_handler(lambda c: c.data.startswith("next_"))
+async def next_turn(callback: types.CallbackQuery):
+    global current_turn_index, turn_timer_task
+
+    player_id = int(callback.data.split("_")[1])
+
+    # فقط گرداننده یا خود بازیکن مجاز هستند
+    if callback.from_user.id not in [moderator_id, player_id]:
+        await callback.answer("❌ فقط گرداننده یا بازیکن نوبت‌دار می‌توانند نکست بزنند.", show_alert=True)
+        return
+
+    # توقف تایمر فعلی
+    if turn_timer_task and not turn_timer_task.done():
+        turn_timer_task.cancel()
+
+    current_turn_index += 1
+
+if current_turn_index >= len(talk_order):
+    # همه صحبت کردند → پایان دور
+    kb = InlineKeyboardMarkup()
+    kb.add(InlineKeyboardButton("🌙 پایان روز", callback_data="end_day"))
+    await callback.message.edit_text("✅ دور صحبت‌ها به پایان رسید.", reply_markup=kb)
+    await callback.answer()
+    return
+
+
+    # شروع نوبت بعدی
+    next_player = talk_order[current_turn_index]
+    await start_turn(next_player, duration=120)
+
+    await callback.answer()
+
+
 
 # ======================
 # ورود و انصراف
@@ -410,6 +651,9 @@ async def confirm_cancel(callback: types.CallbackQuery):
     challenge_mode = False
     paused_main_player = None
     paused_main_duration = None
+    paused_main_challenger = None
+    spoken_players.clear()
+    turn_start_time = None
 
     # یک بار ویرایش کن
     msg = await callback.message.edit_text("🚫 بازی لغو شد.")
@@ -459,6 +703,10 @@ async def start_play(callback: types.CallbackQuery):
     turn_order = player_ids.copy()
     random.shuffle(turn_order)
     current_turn_index = 0
+    paused_main_player = None
+    paused_main_challenger = None
+    spoken_players.clear()
+    turn_start_time = None
 
     # ارسال نقش‌ها به بازیکنان
     for pid, role in zip(player_ids, shuffled_roles):
@@ -513,6 +761,13 @@ def turn_keyboard(player_id):
     kb.add(InlineKeyboardButton("⚔ درخواست چالش", callback_data=f"challenge_request_{player_id}"))
     return kb
 
+def start_round_keyboard():
+    kb = InlineKeyboardMarkup(row_width=2)
+    kb.add(
+        InlineKeyboardButton("▶ شروع دور", callback_data="start_round")
+    )
+    return kb
+
 
 # ======================
 # شروع نوبت + تایمر
@@ -520,16 +775,21 @@ def turn_keyboard(player_id):
 async def start_turn(player_id, duration=DEFAULT_TURN_DURATION, is_challenge=False):
     """
     شروع نوبت (عادی یا چالش)
-    - player_id: id بازیکنِ دارای نوبت (یا چالش)
-    - duration: زمان به ثانیه
-    - is_challenge: اگر True باشد، این نوبت یک نوبت چالش است (دیگر امکان درخواست چالش نیست)
+    - is_challenge=True => دکمه درخواست چالش نمایش داده نمی‌شود
     """
-    global current_turn_message_id, turn_timer_task, challenge_mode
-
-    # تنظیم حالت چالش
-    challenge_mode = bool(is_challenge)
-
-    # unpin پیام قبلی (اگر لازم)
+    global current_turn_message_id, turn_timer_task, paused_main_player, paused_main_challenger, turn_start_time, spoken_players
+    
+    # اگر این نوبت یک نوبت عادی است، spoken_players را پاک کن و زمان شروع را ثبت کن
+    if not is_challenge:
+        spoken_players.clear()
+        # ثبت زمان شروع نوبت (به ثانیه از loop.time())
+        turn_start_time = asyncio.get_event_loop().time()
+    else:
+        
+        # در نوبت چالش اجازه‌ی درخواست چالش ندهیم — زمان را None می‌کنیم
+        turn_start_time = None
+        
+    # اگر پیام قبلی پین شده بود، آنپین کن (اختیاری)
     if current_turn_message_id:
         try:
             await bot.unpin_chat_message(group_chat_id, current_turn_message_id)
@@ -538,8 +798,8 @@ async def start_turn(player_id, duration=DEFAULT_TURN_DURATION, is_challenge=Fal
 
     mention = f"<a href='tg://user?id={player_id}'>{players.get(player_id, 'بازیکن')}</a>"
     text = f"⏳ {duration//60:02d}:{duration%60:02d}\n🎙 نوبت صحبت {mention} است. ({duration} ثانیه)"
-
     msg = await bot.send_message(group_chat_id, text, parse_mode="HTML", reply_markup=turn_keyboard(player_id, is_challenge))
+
     try:
         await bot.pin_chat_message(group_chat_id, msg.message_id, disable_notification=True)
     except:
@@ -547,7 +807,7 @@ async def start_turn(player_id, duration=DEFAULT_TURN_DURATION, is_challenge=Fal
 
     current_turn_message_id = msg.message_id
 
-    # لغو تایمر قبلی (اگر در حال اجرا بود)
+    # لغو تایمر قبلی اگر وجود داشت
     if turn_timer_task and not turn_timer_task.done():
         turn_timer_task.cancel()
 
@@ -555,25 +815,23 @@ async def start_turn(player_id, duration=DEFAULT_TURN_DURATION, is_challenge=Fal
     turn_timer_task = asyncio.create_task(countdown(player_id, duration, msg.message_id, is_challenge))
 
 
+
 #تایمر چالش
 async def countdown(player_id, duration, message_id, is_challenge=False):
     remaining = duration
-    mention = f"<a href='tg://user?id={player_id}'>{players.get(player_id, 'بازیکن')}</a>"
+    mention = f"<a href='tg://user?id={player_id}'>{players.get(player_id,'بازیکن')}</a>"
     try:
         while remaining > 0:
             await asyncio.sleep(10)
             remaining -= 10
-            new_text = f"⏳ {max(0, remaining)//60:02d}:{max(0, remaining)%60:02d}\n🎙 نوبت صحبت {mention} است. ({max(0, remaining)} ثانیه)"
+            new_text = f"⏳ {max(0,remaining)//60:02d}:{max(0,remaining)%60:02d}\n🎙 نوبت صحبت {mention} است. ({max(0,remaining)} ثانیه)"
             try:
                 await bot.edit_message_text(new_text, chat_id=group_chat_id, message_id=message_id,
                                             parse_mode="HTML", reply_markup=turn_keyboard(player_id, is_challenge))
             except:
                 pass
     except asyncio.CancelledError:
-        # اگر تایمر از بیرون کنسل شد، ساکت باشیم
         return
-
-
 
 # ======================
 # شروع بازی و نوبت اول
@@ -623,94 +881,171 @@ async def start_play(callback: types.CallbackQuery):
 # نکست نوبت
 # ======================
 @dp.callback_query_handler(lambda c: c.data.startswith("next_"))
-async def next_turn_callback(callback: types.CallbackQuery):
-    global current_turn_index, challenge_mode, paused_main_player, paused_main_duration
+async def next_turn(callback: types.CallbackQuery):
+    global current_turn_index, turn_timer_task, paused_main_player, paused_main_challenger, pending_challenges
 
-    # id ای که داخل callback_data فرستاده شده
-    user_id = int(callback.data.split("_", 1)[1])
+    player_id = int(callback.data.split("_", 1)[1])
 
-    # اگر الان داشتیم یک نوبت چالش را می‌گذراندیم -> بعد از اتمام چالش، resume نوبت اصلی (اگر وجود داشته)
-    if challenge_mode:
-        challenge_mode = False
-        await callback.answer("✅ نوبت چالش تمام شد. ادامه‌ی بازی انجام می‌شود.")
-        if paused_main_player:
-            # resume نوبت اصلی که قبل از چالش paused شده بود
-            resume_id = paused_main_player
-            resume_dur = paused_main_duration or DEFAULT_TURN_DURATION
-            # پاک‌سازی متغیرهای paused
+    # فقط گرداننده یا خود بازیکن مجازند
+    if callback.from_user.id not in [moderator_id, player_id]:
+        await callback.answer("❌ فقط گرداننده یا بازیکن نوبت‌دار می‌توانند نکست بزنند.", show_alert=True)
+        return
+
+    # توقف تایمر فعلی
+    if turn_timer_task and not turn_timer_task.done():
+        turn_timer_task.cancel()
+
+    # 1) اگر قبلاً یک "چالش قبل" اتفاق افتاده و حالا چالش‌کننده نوبتش رو تمام کرده => resume نوبت اصلی
+    if paused_main_player is not None:
+        # فقط چالش‌کننده یا گرداننده می‌توانند پایان چالش را تایید کنند
+        if callback.from_user.id == paused_main_challenger or callback.from_user.id == moderator_id:
+            target_to_resume = paused_main_player
             paused_main_player = None
-            paused_main_duration = None
-            await start_turn(resume_id, duration=resume_dur, is_challenge=False)
+            paused_main_challenger = None
+            await callback.answer("✅ چالش تمام شد — نوبت اصلی ادامه می‌یابد.")
+            await start_turn(target_to_resume, duration=DEFAULT_TURN_DURATION, is_challenge=False)
             return
         else:
-            # اگر هیچ paused_main نباشد، معمولاً next یعنی رفتن به نوبت بعدی؛ پایین ادامه بدهیم
-            pass
+            await callback.answer("❌ فقط گرداننده یا چالش‌کننده می‌توانند چالش را پایان دهند.", show_alert=True)
+            return
 
-    # اگر نوبت اصلی بود و برای این بازیکن pending "چالش بعد" ثبت شده است -> اول چالش اجرا شود
-    if user_id in pending_challenges:
-        challenger_id = pending_challenges.get(user_id)
-        # حذف از pending
-        try:
-            del pending_challenges[user_id]
-        except KeyError:
-            pass
-        await callback.answer("⚔ چالش ثبت‌شده اجرا می‌شود.", show_alert=True)
-        # اجرای نوبت چالشِ چالش‌کننده
-        await start_turn(challenger_id, duration=60, is_challenge=True)
+    # 2) اگر برای این بازیکن یک چالش 'بعد' ثبت شده است => اجرا کن
+    if player_id in pending_challenges:
+        challenger = pending_challenges.pop(player_id)
+        await callback.answer("⚔ نوبت چالش اجرا می‌شود.", show_alert=True)
+        await start_turn(challenger, duration=60, is_challenge=True)
         return
 
-    # اگر نه، بریم سراغ بازیکن بعدی در turn_order
-    current_turn_index += 1
-    if current_turn_index >= len(turn_order):
-        # پایان فاز روز (یا هر اکشن دلخواه)
-        await bot.send_message(group_chat_id, "✅ همه بازیکنان صحبت کردند. فاز روز پایان یافت.")
+    # 3) در غیر این صورت، بریم سراغ نفر بعدی در talk_order (یا خودِ لیست نوبتت)
+    # فرض: تو از متغیر talk_order یا turn_order برای ترتیب استفاده می‌کنی
+    if player_id in talk_order:
+        idx = talk_order.index(player_id)
+        next_index = idx + 1
+    else:
+        # fallback به current_turn_index
+        next_index = current_turn_index + 1
+
+    if next_index >= len(talk_order):
+        await bot.send_message(group_chat_id, "✅ دور صحبت‌ها به پایان رسید.")
         current_turn_index = 0
+        await callback.answer()
         return
 
-    next_player_id = turn_order[current_turn_index]
-    await start_turn(next_player_id, duration=DEFAULT_TURN_DURATION, is_challenge=False)
+    current_turn_index = next_index
+    next_player = talk_order[current_turn_index]
+    await start_turn(next_player, duration=DEFAULT_TURN_DURATION, is_challenge=False)
     await callback.answer()
+
 
 #=======================
 # درخواست چالش
 #=======================
-
 @dp.callback_query_handler(lambda c: c.data.startswith("challenge_request_"))
 async def challenge_request(callback: types.CallbackQuery):
+    # گرفتن id صاحب نوبت از callback data
+    target_id = int(callback.data.split("_", 2)[2])
+    challenger_id = callback.from_user.id
+    # شرایط اولیه
+    if challenger_id == target_id:
+        await callback.answer("❌ نمی‌توانید به خودتان چالش دهید.", show_alert=True)
+        return
+    if challenger_id not in players:
+        await callback.answer("❌ فقط بازیکنان داخل بازی می‌توانند چالش دهند.", show_alert=True)
+        return
     if not game_running:
         await callback.answer("❌ بازی در جریان نیست.", show_alert=True)
         return
+        # شرط ۲: مهلت ۶۰ ثانیه از شروع نوبت (اگر بیش از 60s گذشته باشد، پذیرش درخواست ممنوع)
+    if turn_start_time is not None:
+        now = asyncio.get_event_loop().time()
+        if now - turn_start_time > 60:
+            await callback.answer("⏳ مهلت درخواست چالش (۶۰ ثانیه) به پایان رسیده است.", show_alert=True)
+            return    
+    # (اگر از قبل چالش‌ها غیرفعال کرده باشی، میتونی چک کنی؛ در غیر این صورت خط را حذف کن)
+    if 'challenge_disabled' in globals() and challenge_disabled:
+        await callback.answer("❌ در این دور چالش غیرفعال است.", show_alert=True)
+        return
 
     challenger_id = callback.from_user.id
-    # قالب: "challenge_request_{current_player_id}"
-    current_player_id = int(callback.data.split("_", 2)[2])
+    # callback_data: "challenge_request_{target_id}"
+    target_id = int(callback.data.split("_", 2)[2])
 
-    if challenger_id == current_player_id:
+    if challenger_id == target_id:
         await callback.answer("❌ نمی‌توانید به خودتان چالش بدهید.", show_alert=True)
         return
-
     if challenger_id not in players:
-        await callback.answer("❌ فقط بازیکنان داخل بازی می‌توانند چالش بدهند.", show_alert=True)
+        await callback.answer("❌ فقط بازیکنان داخل بازی می‌توانند چالش دهند.", show_alert=True)
         return
 
+    
     challenger_name = players.get(challenger_id, "بازیکن")
-    target_name = players.get(current_player_id, "بازیکن")
+    target_name = players.get(target_id, "بازیکن")
 
     kb = InlineKeyboardMarkup(row_width=1)
-    kb.add(InlineKeyboardButton("⚔ چالش قبل صحبت", callback_data=f"challenge_before_{challenger_id}_{current_player_id}"))
-    kb.add(InlineKeyboardButton("⚔ چالش بعد صحبت", callback_data=f"challenge_after_{challenger_id}_{current_player_id}"))
-    kb.add(InlineKeyboardButton("🚫 چالش نمیدم", callback_data=f"challenge_none_{challenger_id}_{current_player_id}"))
+    # فقط اگر صاحب نوبت هنوز حرف نزده باشد، گزینه "چالش قبل" را نمایش بده
+    if target_id not in spoken_players: 
+        kb.add(InlineKeyboardButton("⚔ چالش قبل صحبت", callback_data=f"challenge_before_{challenger_id}_{target_id}"))
+   
+    kb.add(InlineKeyboardButton("⚔ چالش بعد صحبت", callback_data=f"challenge_after_{challenger_id}_{target_id}"))
+    kb.add(InlineKeyboardButton("🚫 چالش نمیدم", callback_data=f"challenge_none_{challenger_id}_{target_id}"))
 
     await bot.send_message(group_chat_id,
                            f"⚔ <b>{challenger_name}</b> درخواست چالش به <b>{target_name}</b> داده!\n\n"
-                           "یک گزینه را انتخاب کنید:",
+                           "لطفاً یکی از گزینه‌ها را انتخاب کنید:",
                            parse_mode="HTML",
                            reply_markup=kb)
     await callback.answer()
 
-#===============
+
+
+#======================
+# انتخاب نوع چالش
+#======================
+
+@dp.callback_query_handler(lambda c: c.data.startswith("challenge_"))
+async def challenge_choice(callback: types.CallbackQuery):
+    global pending_challenges, paused_main_player, paused_main_challenger, turn_timer_task
+
+    parts = callback.data.split("_")
+    # قالب: challenge_before_{challenger}_{target}  یا challenge_after_{challenger}_{target} یا challenge_none_{challenger}_{target}
+    action = parts[1]
+    challenger_id = int(parts[2])
+    target_id = int(parts[3])
+
+    challenger_name = players.get(challenger_id, "چالش‌کننده")
+    target_name = players.get(target_id, "بازیکن")
+    
+    if callback.from_user.id != target_id:
+        await callback.answer("❌ فقط بازیکن نوبت‌دار می‌تواند انتخاب کند.", show_alert=True)
+        return
+        
+    if action == "before":
+        # pause نوبت اصلی و اجرای فوری چالشِ یک دقیقه‌ای توسط challenger
+        paused_main_player = target_id
+        paused_main_challenger = challenger_id
+
+        # لغو تایمر فعلی (تا نوبت اصلی متوقف شود)
+        if turn_timer_task and not turn_timer_task.done():
+            turn_timer_task.cancel()
+
+        await bot.send_message(group_chat_id, f"⚔ چالش قبل: <b>{challenger_name}</b> یک دقیقه صحبت می‌کند.", parse_mode="HTML")
+        await start_turn(challenger_id, duration=60, is_challenge=True)
+        await callback.answer("✅ چالش قبل اجرا شد.", show_alert=True)
+
+    elif action == "after":
+        # ثبت در pending_challenges تا وقتی نوبت main تمام شد اجرا شود
+        pending_challenges[target_id] = challenger_id
+        await callback.message.edit_text(f"⚔ {players[target_id]} چالش بعد را به {players[challenger_id]} ثبت کرد.")
+        await callback.answer()
+
+    elif action == "none":
+        await callback.message.edit_text(f"✅ {players[target_id]} تصمیم گرفت هیچ چالشی انجام نشود.")
+        await callback.answer()
+
+
+#========================
 # انتخاب چالش
-#===============
+#========================
 
 @dp.callback_query_handler(lambda c: c.data.startswith("challenge_"))
 async def challenge_choice(callback: types.CallbackQuery):
@@ -746,6 +1081,91 @@ async def challenge_choice(callback: types.CallbackQuery):
     elif action == "none":
         await bot.send_message(group_chat_id, f"🚫 {challenger_name} از ارسال چالش منصرف شد.", parse_mode="HTML")
 
+    await callback.answer()
+
+@dp.message_handler()  # این handler عمومی است؛ اگر handlerهای دقیق‌تر داری، این را بعد از آنها قرار بده
+async def detect_speaking(message: types.Message):
+    # فقط پیام‌های داخل گروه بازی را بررسی کن
+    try:
+        if message.chat.id != group_chat_id:
+            return
+    except:
+        return
+
+    # اگر بازی در جریان است و talk_order/ current_turn_index منطقی است:
+    if not game_running:
+        return
+
+    # ایندکس و نفر فعلی را بدست آور
+    if not talk_order:
+        return
+    if current_turn_index < 0 or current_turn_index >= len(talk_order):
+        return
+
+    current_player = talk_order[current_turn_index]
+    # اگر صاحب نوبت پیام فرستاد -> به مجموعه spoken_players اضافه کن
+    if message.from_user.id == current_player:
+        spoken_players.add(current_player)
+
+
+@dp.callback_query_handler(lambda c: c.data == "end_day")
+async def end_day(callback: types.CallbackQuery):
+    global game_phase
+    if callback.from_user.id != moderator_id:
+        await callback.answer("❌ فقط گرداننده می‌تواند روز را تمام کند.", show_alert=True)
+        return
+
+    game_phase = "night"
+
+    kb = InlineKeyboardMarkup()
+    kb.add(InlineKeyboardButton("☀ اعلام روز", callback_data="start_day"))
+
+    msg = (
+        "🌙 روز تموم شد\n"
+        "🌌 شب میشه\n\n"
+        "🕵 گروه مافیا به گروهشون برن\n"
+        "🎭 نقش‌دارها به پیوی گرداننده برن\n\n"
+        "🚫 در فاز شب در گروه تایپ نکنید\n"
+        "❌ در صورت تایپ اخطار و کیک خواهید شد."
+    )
+
+    # قفل کردن گروه (گرفتن دسترسی نوشتن از همه)
+    try:
+        await bot.set_chat_permissions(
+            group_chat_id,
+            types.ChatPermissions(can_send_messages=False)
+        )
+    except Exception as e:
+        print("خطا در قفل گروه:", e)
+
+    await callback.message.edit_text(msg, reply_markup=kb)
+    await callback.answer()
+
+
+@dp.callback_query_handler(lambda c: c.data == "start_day")
+async def start_day(callback: types.CallbackQuery):
+    global game_phase
+    if callback.from_user.id != moderator_id:
+        await callback.answer("❌ فقط گرداننده می‌تواند روز را اعلام کند.", show_alert=True)
+        return
+
+    game_phase = "day"
+
+    # باز کردن گروه
+    try:
+        await bot.set_chat_permissions(
+            group_chat_id,
+            types.ChatPermissions(
+                can_send_messages=True,
+                can_send_media_messages=True,
+                can_send_other_messages=True,
+                can_add_web_page_previews=True
+            )
+        )
+    except Exception as e:
+        print("خطا در باز کردن گروه:", e)
+
+    await callback.message.edit_text("☀ روز جدید آغاز شد. همه می‌توانند صحبت کنند.")
     await callback.answer()
 
 
