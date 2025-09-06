@@ -275,15 +275,20 @@ async def choose_moderator(callback: types.CallbackQuery):
     await callback.message.edit_text("🎩 یک گرداننده انتخاب کنید:", reply_markup=kb)
     await callback.answer()
 
+
 @dp.callback_query_handler(lambda c: c.data.startswith("moderator_"))
 async def set_moderator(callback: types.CallbackQuery):
     global moderator_id
     moderator_id = int(callback.data.split("_")[1])
     
-    # پیام به‌روزرسانی می‌شود تا انتخاب مشخص شود
     member = await bot.get_chat_member(group_chat_id, moderator_id)
+    
+    # به‌روزرسانی پیام لابی با نمایش گرداننده انتخاب شده
     await callback.message.edit_text(
-        f"🎩 گرداننده انتخاب شد: {member.user.full_name}"
+        f"🎩 گرداننده انتخاب شد: {member.user.full_name}\n\n"
+        "🎮 بازی مافیا فعال است!\n"
+        "لطفا سناریو را انتخاب کنید:",
+        reply_markup=game_menu_keyboard()  # این کیبورد شامل انتخاب سناریو و شروع بازی است
     )
     await callback.answer("✅ گرداننده تنظیم شد!")
 
