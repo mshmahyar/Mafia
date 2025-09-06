@@ -140,7 +140,16 @@ def turn_keyboard(player_id):
     kb.add(InlineKeyboardButton("⚔ درخواست چالش", callback_data=f"challenge_request_{player_id}"))
     return kb
 
-
+def game_menu_keyboard():
+    kb = InlineKeyboardMarkup(row_width=2)
+    kb.add(
+        InlineKeyboardButton("📝 انتخاب سناریو", callback_data="choose_scenario"),
+        InlineKeyboardButton("🎩 انتخاب گرداننده", callback_data="choose_moderator")
+    )
+    kb.add(
+        InlineKeyboardButton("🎮 شروع بازی", callback_data="start_round")
+    )
+    return kb
 
 
 # ======================
@@ -295,6 +304,16 @@ async def moderator_selected(callback: types.CallbackQuery):
         reply_markup=join_menu()
     )
     await callback.answer()
+
+await callback.message.edit_text(
+    f"🎩 گرداننده انتخاب شد: {member.user.full_name}\n"
+    f"📝 سناریو انتخاب شد: {selected_scenario}\n\n"
+    "لطفا روی دکمه «پخش نقش» کلیک کنید تا نقش‌ها به بازیکنان ارسال شود.",
+    reply_markup=InlineKeyboardMarkup().add(
+        InlineKeyboardButton("🎭 پخش نقش", callback_data="distribute_roles")
+    )
+)
+
 
 #===============
 # پخش نقش
