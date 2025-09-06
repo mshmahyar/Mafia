@@ -492,13 +492,13 @@ async def next_turn(callback: types.CallbackQuery):
 
     current_turn_index += 1
 
-if current_turn_index >= len(talk_order):
-    # همه صحبت کردند → پایان دور
-    kb = InlineKeyboardMarkup()
-    kb.add(InlineKeyboardButton("🌙 پایان روز", callback_data="end_day"))
-    await callback.message.edit_text("✅ دور صحبت‌ها به پایان رسید.", reply_markup=kb)
-    await callback.answer()
-    return
+    if current_turn_index >= len(talk_order):
+        # همه صحبت کردند → پایان دور
+        kb = InlineKeyboardMarkup()
+        kb.add(InlineKeyboardButton("🌙 پایان روز", callback_data="end_day"))
+        await callback.message.edit_text("✅ دور صحبت‌ها به پایان رسید.", reply_markup=kb)
+        await callback.answer()
+        return
 
 
     # شروع نوبت بعدی
