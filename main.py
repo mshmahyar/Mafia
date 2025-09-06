@@ -283,39 +283,31 @@ async def set_moderator(callback: types.CallbackQuery):
     
     member = await bot.get_chat_member(group_chat_id, moderator_id)
     
-    # به‌روزرسانی پیام لابی با نمایش گرداننده انتخاب شده
+    # کیبورد ترکیبی: لیست بازیکنان + دکمه‌های لابی + دکمه‌های شروع بازی / پخش نقش
+    kb = InlineKeyboardMarkup(row_width=1)
+    
+    # مثال اضافه کردن دکمه ورود و خروج بازیکن
+    kb.add(
+        InlineKeyboardButton("✅ ورود به بازی", callback_data="join_game"),
+        InlineKeyboardButton("❌ خروج از بازی", callback_data="leave_game")
+    )
+    
+    # اگر سناریو انتخاب شده باشد دکمه پخش نقش اضافه شود
+    if selected_scenario:
+        kb.add(InlineKeyboardButton("🎭 پخش نقش", callback_data="distribute_roles"))
+    
+    # پیام لابی یکجا ویرایش شود
     await callback.message.edit_text(
-        f"🎩 گرداننده انتخاب شد: {member.user.full_name}\n\n"
+        f"🎩 گرداننده انتخاب شد: {member.user.full_name}\n"
+        f"📝 سناریو انتخاب شد: {selected_scenario if selected_scenario else 'هنوز انتخاب نشده'}\n\n"
         "🎮 بازی مافیا فعال است!\n"
-        "لطفا سناریو را انتخاب کنید:",
-        reply_markup=game_menu_keyboard()  # این کیبورد شامل انتخاب سناریو و شروع بازی است
+        "لطفا از دکمه‌ها استفاده کنید:",
+        reply_markup=kb
     )
     await callback.answer("✅ گرداننده تنظیم شد!")
 
-    if moderator_id:
-        await update_lobby()
-
-
-
-@dp.callback_query_handler(lambda c: c.data.startswith("moderator_"))
-async def moderator_selected(callback: types.CallbackQuery):
-    global moderator_id
-    moderator_id = int(callback.data.replace("moderator_", ""))
-    await callback.message.edit_text(
-        f"🎩 گرداننده انتخاب شد: {(await bot.get_chat_member(group_chat_id, moderator_id)).user.full_name}\n"
-        f"حالا اعضا می‌توانند وارد بازی شوند یا انصراف دهند.",
-        reply_markup=join_menu()
-    )
-    await callback.answer()
-
-    await callback.message.edit_text(
-        f"🎩 گرداننده انتخاب شد: {member.user.full_name}\n"
-        f"📝 سناریو انتخاب شد: {selected_scenario}\n\n"
-        "لطفا روی دکمه «پخش نقش» کلیک کنید تا نقش‌ها به بازیکنان ارسال شود.",
-        reply_markup=InlineKeyboardMarkup().add(
-        InlineKeyboardButton("🎭 پخش نقش", callback_data="distribute_roles")
-    )
-)
+    # به‌روزرسانی لیست بازیکنان و وضعیت لابی
+    await update_lobby()
 
 
 #===============
@@ -605,59 +597,65 @@ async def leave_game_callback(callback: types.CallbackQuery):
 # ======================
 async def update_lobby():
     global lobby_message_id
-    if not group_chat_id or not lobby_message_id:
+
+    if not lobby_active:
         return
 
-    text = f"📋 **لیست بازی:**\n"
-    text += f"سناریو: {selected_scenario or 'انتخاب نشده'}\n"
-    text += f"گرداننده: {(await bot.get_chat_member(group_chat_id, moderator_id)).user.full_name if moderator_id else 'انتخاب نشده'}\n\n"
+    # متن لابی
+    text = "🎮 **Lobby بازی مافیا** 🎮\n\n"
 
-    if players:
-        for uid, name in players.items():
-            text += f"- {name}\n"
+    # گرداننده
+    if moderator_id:
+        member = await bot.get_chat_member(group_chat_id, moderator_id)
+        text += f"🎩 گرداننده: {member.user.full_name}\n"
     else:
-        text += "هیچ بازیکنی وارد بازی نشده است.\n"
+        text += "🎩 گرداننده انتخاب نشده است.\n"
 
-    kb = InlineKeyboardMarkup(row_width=5)
+    # بازیکنان
+    if players:
+        text += "👥 بازیکنان حاضر:\n"
+        for i, player_id in enumerate(players, start=1):
+            member = await bot.get_chat_member(group_chat_id, player_id)
+            text += f"{i}. {member.user.full_name}\n"
+    else:
+        text += "👥 هیچ بازیکنی وارد بازی نشده است.\n"
 
-    # ✅ دکمه‌های انتخاب صندلی
+    # سناریو
     if selected_scenario:
-        max_players = len(scenarios[selected_scenario]["roles"])
-        for i in range(1, max_players + 1):
-            if i in player_slots:
-                # اگه صندلی پر باشه → نمایش نام بازیکن
-                player_name = players.get(player_slots[i], "❓")
-                kb.insert(InlineKeyboardButton(f"{i} ({player_name})", callback_data=f"slot_{i}"))
-            else:
-                kb.insert(InlineKeyboardButton(str(i), callback_data=f"slot_{i}"))
+        text += f"\n📝 سناریو انتخاب شده: {selected_scenario}\n"
+    else:
+        text += "\n📝 سناریو انتخاب نشده است.\n"
 
-    # ✅ دکمه ورود/خروج
-    kb.row(
-        InlineKeyboardButton("✅ ورود به بازی", callback_data="join_game"),
-        InlineKeyboardButton("❌ خروج از بازی", callback_data="leave_game"),
+    # کیبورد لابی
+    kb = InlineKeyboardMarkup(row_width=2)
+    
+    # دکمه‌ها برای ورود/خروج و انتخاب صندلی
+    kb.add(
+        InlineKeyboardButton("➕ ورود به بازی", callback_data="join_game"),
+        InlineKeyboardButton("❌ انصراف از بازی", callback_data="leave_game")
+    )
+    kb.add(
+        InlineKeyboardButton("💺 انتخاب صندلی", callback_data="choose_seat")
     )
 
-    # ✅ دکمه لغو بازی فقط برای مدیران
-    if moderator_id and moderator_id in admins:
-        kb.add(InlineKeyboardButton("🚫 لغو بازی", callback_data="cancel_game"))
+    # دکمه‌های مرتبط با سناریو و شروع بازی (فقط اگر گرداننده انتخاب شده)
+    if moderator_id and selected_scenario:
+        kb.add(
+            InlineKeyboardButton("🎭 پخش نقش", callback_data="distribute_roles"),
+            InlineKeyboardButton("▶️ شروع بازی", callback_data="start_game")
+        )
 
-    # ✅ دکمه شروع بازی در صورت کافی بودن بازیکنان
-    if selected_scenario and moderator_id:
-        min_players = scenarios[selected_scenario]["min_players"]
-        max_players = len(scenarios[selected_scenario]["roles"])
-        if min_players <= len(players) <= max_players:
-            kb.add(InlineKeyboardButton("▶ شروع بازی", callback_data="start_play"))
-        elif len(players) > max_players:
-            text += "\n⚠️ تعداد بازیکنان بیش از ظرفیت این سناریو است."
-
-    # 🔄 بروزرسانی پیام لابی
-    await bot.edit_message_text(
-        text,
-        chat_id=group_chat_id,
-        message_id=lobby_message_id,
-        reply_markup=kb,
-        parse_mode="Markdown"
-    )
+    # ویرایش پیام لابی
+    try:
+        await bot.edit_message_text(
+            text=text,
+            chat_id=group_chat_id,
+            message_id=lobby_message_id,
+            reply_markup=kb,
+            parse_mode="Markdown"
+        )
+    except Exception as e:
+        print(f"Update lobby error: {e}")
 
 
 # ======================
