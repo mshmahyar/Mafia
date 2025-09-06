@@ -292,6 +292,9 @@ async def set_moderator(callback: types.CallbackQuery):
     )
     await callback.answer("✅ گرداننده تنظیم شد!")
 
+    if moderator_id:
+        await update_lobby()
+
 
 
 @dp.callback_query_handler(lambda c: c.data.startswith("moderator_"))
