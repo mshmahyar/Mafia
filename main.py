@@ -91,9 +91,9 @@ def main_menu_keyboard():
 def lobby_keyboard():
     kb = InlineKeyboardMarkup(row_width=2)
     kb.add(
+        InlineKeyboardButton("🎭 پخش نقش‌ها", callback_data="distribute_roles"),
         InlineKeyboardButton("📝 انتخاب سناریو", callback_data="choose_scenario"),
         InlineKeyboardButton("🎩 انتخاب گرداننده", callback_data="choose_moderator"),
-        InlineKeyboardButton("🎭 پخش نقش‌ها", callback_data="distribute_roles"),
     )
     kb.add(
         InlineKeyboardButton("🚪 خروج", callback_data="leave_game"),
