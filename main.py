@@ -305,11 +305,11 @@ async def moderator_selected(callback: types.CallbackQuery):
     )
     await callback.answer()
 
-await callback.message.edit_text(
-    f"🎩 گرداننده انتخاب شد: {member.user.full_name}\n"
-    f"📝 سناریو انتخاب شد: {selected_scenario}\n\n"
-    "لطفا روی دکمه «پخش نقش» کلیک کنید تا نقش‌ها به بازیکنان ارسال شود.",
-    reply_markup=InlineKeyboardMarkup().add(
+    await callback.message.edit_text(
+        f"🎩 گرداننده انتخاب شد: {member.user.full_name}\n"
+        f"📝 سناریو انتخاب شد: {selected_scenario}\n\n"
+        "لطفا روی دکمه «پخش نقش» کلیک کنید تا نقش‌ها به بازیکنان ارسال شود.",
+        reply_markup=InlineKeyboardMarkup().add(
         InlineKeyboardButton("🎭 پخش نقش", callback_data="distribute_roles")
     )
 )
