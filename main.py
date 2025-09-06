@@ -140,6 +140,17 @@ def turn_keyboard(player_id):
     kb.add(InlineKeyboardButton("⚔ درخواست چالش", callback_data=f"challenge_request_{player_id}"))
     return kb
 
+def game_menu_keyboard():
+    kb = InlineKeyboardMarkup(row_width=2)
+    kb.add(
+        InlineKeyboardButton("📝 انتخاب سناریو", callback_data="choose_scenario"),
+        InlineKeyboardButton("🎩 انتخاب گرداننده", callback_data="choose_moderator")
+    )
+    kb.add(
+        InlineKeyboardButton("🎮 شروع بازی", callback_data="start_round")
+    )
+    return kb
+
 
 # ======================
 # دستورات اصلی
