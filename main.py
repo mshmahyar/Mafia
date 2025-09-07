@@ -35,6 +35,9 @@ current_turn_index = 0      # اندیس نوبت فعلی
 current_turn_message_id = None  # پیام پین شده برای نوبت
 turn_timer_task = None      # تسک تایمر نوبت
 player_slots = {}  # {slot_number: user_id}
+# وضعیت پخش نقش و نگهداری نقش‌های اختصاص‌یافته
+roles_distributed = False       # آیا نقش‌ها پخش شده‌اند (با کلید «پخش نقش»)
+assigned_roles = {}             # { user_id: role }  — نقش اختصاص‌یافته به هر بازیکن
 
 
 # ======================
@@ -320,14 +323,22 @@ async def update_lobby():
     if moderator_id and moderator_id in admins:
         kb.add(InlineKeyboardButton("🚫 لغو بازی", callback_data="cancel_game"))
 
-    # دکمه شروع بازی در صورت کافی بودن بازیکنان
+    # ✅ دکمه پخش نقش یا شروع بازی بسته به وضعیت پخش نقش
     if selected_scenario and moderator_id:
-        min_players = scenarios[selected_scenario]["min_players"]
-        max_players = len(scenarios[selected_scenario]["roles"])
+        scenario_data = scenarios[selected_scenario]
+        min_players = scenario_data["min_players"]
+        max_players = len(scenario_data["roles"])
         if min_players <= len(players) <= max_players:
+        # اگر هنوز نقش‌ها پخش نشده‌اند → دکمه "پخش نقش" نمایش داده شود
+        if not roles_distributed:
+            kb.add(InlineKeyboardButton("🎭 پخش نقش", callback_data="distribute_roles"))
+        else:
+            # اگر نقش‌ها قبلاً پخش شده‌اند → دکمه شروع بازی فعال شود
             kb.add(InlineKeyboardButton("▶ شروع بازی", callback_data="start_play"))
         elif len(players) > max_players:
             text += "\n⚠️ تعداد بازیکنان بیش از ظرفیت این سناریو است."
+            
+
 
     # بروزرسانی پیام لابی (استفاده از HTML برای parse mode چون bot با HTML مقداردهی شده)
     try:
@@ -365,6 +376,9 @@ async def confirm_cancel(callback: types.CallbackQuery):
     global players, player_slots, game_running, selected_scenario, moderator_id, lobby_message_id
     players.clear()
     player_slots.clear()
+    # پاک‌سازی وضعیت مربوط به نقش‌ها
+    roles_distributed = False
+    assigned_roles.clear()
     game_running = False
     selected_scenario = None
     moderator_id = None
@@ -393,38 +407,124 @@ async def back_to_lobby(callback: types.CallbackQuery):
 # ======================
 # شروع بازی و نوبت اول
 # ======================
-@dp.callback_query_handler(lambda c: c.data == "start_play")
-async def start_play(callback: types.CallbackQuery):
-    global turn_order, current_turn_index
+@dp.callback_query_handler(lambda c: c.data == "distribute_roles")
+async def distribute_roles(callback: types.CallbackQuery):
+    global roles_distributed, assigned_roles
+
+    # فقط گرداننده اجازه دارد
     if callback.from_user.id != moderator_id:
-        await callback.answer("❌ فقط گرداننده می‌تواند بازی را شروع کند.", show_alert=True)
+        await callback.answer("❌ فقط گرداننده می‌تواند نقش‌ها را پخش کند.", show_alert=True)
         return
 
-    roles = scenarios[selected_scenario]["roles"]
-    if len(players) < len(roles):
-        await callback.answer(f"❌ تعداد بازیکنان کافی نیست! حداقل {len(roles)} نفر نیاز است.", show_alert=True)
+    if not selected_scenario:
+        await callback.answer("❌ هنوز سناریویی انتخاب نشده.", show_alert=True)
         return
 
-    shuffled_roles = random.sample(roles, len(players))
+    scenario_data = scenarios[selected_scenario]
+    min_players = scenario_data["min_players"]
+    max_players = len(scenario_data["roles"])
+
+    # تعداد بازیکنان چک شود
+    if len(players) < min_players:
+        await callback.answer("❌ تعداد بازیکنان برای این سناریو کافی نیست.", show_alert=True)
+        return
+    if len(players) > max_players:
+        await callback.answer("❌ تعداد بازیکنان بیش از ظرفیت این سناریو است.", show_alert=True)
+        return
+
+    if roles_distributed:
+        await callback.answer("⚠ نقش‌ها قبلاً پخش شده‌اند.", show_alert=True)
+        return
+
+    # ساختن لیست نقش‌ها بر اساس سناریو و تعداد بازیکنان
+    roles_pool = scenario_data["roles"][:len(players)]
+    random.shuffle(roles_pool)
+
+    # نگاشت نقش‌ها به بازیکنان (از ترتیب players استفاده می‌کنیم)
+    assigned_roles.clear()
     player_ids = list(players.keys())
-    turn_order = player_ids.copy()
-    random.shuffle(turn_order)
-    current_turn_index = 0
+    role_list_for_moderator = f"📜 لیست نقش‌ها (سناریو: {selected_scenario}):\n\n"
 
-    for pid, role in zip(player_ids, shuffled_roles):
+    for uid, role in zip(player_ids, roles_pool):
+        assigned_roles[uid] = role
         try:
-            await bot.send_message(pid, f"🎭 نقش شما: {role}")
+            await bot.send_message(uid, f"🎭 نقش شما: {role}\n\nبرای مشاهدهٔ نقش حتماً پیوی ربات را چک کنید.")
+        except Exception:
+            # اگر نتوانستیم در پیوی ارسال کنیم، به گرداننده اطلاع می‌دهیم بعداً
+            pass
+        # نام بازیکن برای گرداننده
+        role_list_for_moderator += f"{players.get(uid, uid)}: {role}\n"
+
+    # ارسال لیست کامل نقش‌ها به پیوی گرداننده
+    try:
+        await bot.send_message(moderator_id, role_list_for_moderator)
+    except Exception:
+        pass
+
+    # علامت‌گذاری که نقش‌ها پخش شدند
+    roles_distributed = True
+
+    # بروزرسانی لابی (اکنون دکمه شروع بازی نمایش داده خواهد شد)
+    await update_lobby()
+
+    # اطلاع به گروه / ویرایش متن پیام لابی فعلی
+    try:
+        await callback.message.edit_text(
+            "🚀 نقش‌ها پخش شدند!\n"
+            "🎭 نقش‌ها به پیوی بازیکنان ارسال شدند.\n"
+            "📌 گرداننده لیست نقش‌ها را در پیوی دریافت کرده است."
+        )
+    except:
+        pass
+
+    await callback.answer("✅ نقش‌ها پخش شدند.")
+
+
+    @dp.callback_query_handler(lambda c: c.data == "start_play")
+    async def start_play(callback: types.CallbackQuery):
+        global turn_order, current_turn_index, game_running
+
+        if callback.from_user.id != moderator_id:
+            await callback.answer("❌ فقط گرداننده می‌تواند بازی را شروع کند.", show_alert=True)
+            return
+
+        if not selected_scenario:
+            await callback.answer("❌ ابتدا یک سناریو انتخاب کنید.", show_alert=True)
+            return
+
+        # مطمئن شو نقش‌ها قبلاً پخش شده‌اند
+        if not roles_distributed:
+            await callback.answer("❌ ابتدا روی «پخش نقش» کلیک کنید.", show_alert=True)
+            return
+
+        # بررسی تعداد بازیکنان نسبت به سناریو (ایمنی)
+        scenario_roles = scenarios[selected_scenario]["roles"]
+        if len(players) < len(scenario_roles[:len(players)]):
+            await callback.answer("❌ تعداد بازیکنان کافی نیست.", show_alert=True)
+            return
+
+        # آماده‌سازی ترتیب نوبت‌ها و شروع بازی
+        player_ids = list(players.keys())
+        turn_order = player_ids.copy()
+        random.shuffle(turn_order)
+        current_turn_index = 0
+        game_running = True
+
+        # ارسال لیست نقش‌ها به گرداننده دوباره (اختیاری) — اگر می‌خواهی نیاور، خط زیر را پاک کن
+        try:
+            role_list_for_moderator = "📜 نقش‌ها (تکرار برای گرداننده):\n\n"
+            for uid in player_ids:
+                role_list_for_moderator += f"{players.get(uid,'؟')}: {assigned_roles.get(uid,'(نامشخص)')}\n"
+            await bot.send_message(moderator_id, role_list_for_moderator)
         except:
-            await bot.send_message(moderator_id, f"⚠ نمی‌توانم نقش را به {players[pid]} ارسال کنم.")
+            pass
+            
+        await callback.answer("✅ بازی آغاز شد!")
 
-    text = "📜 نقش‌ها برای بازیکنان:\n"
-    for pid, role in zip(player_ids, shuffled_roles):
-        text += f"{players[pid]} → {role}\n"
-    await bot.send_message(moderator_id, text)
-    await callback.answer("✅ بازی شروع شد!")
+        # شروع نوبت اول (اگر لیست نوبت وجود دارد)
+        if turn_order:
+            await start_turn(turn_order[0])
 
-    if turn_order:
-        await start_turn(turn_order[0])
 
 # ======================
 # شروع نوبت + تایمر
