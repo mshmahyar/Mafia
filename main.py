@@ -329,6 +329,11 @@ async def update_lobby():
     global lobby_message_id
     if not group_chat_id or not lobby_message_id:
         return
+    if not lobby_message_id:
+    msg = await bot.send_message(group_chat_id, text, reply_markup=kb, parse_mode="HTML")
+    lobby_message_id = msg.message_id
+    return
+
 
     text = f"📋 **لیست بازی:**\n"
     text += f"سناریو: {selected_scenario or 'انتخاب نشده'}\n"
@@ -583,23 +588,27 @@ async def start_play(callback: types.CallbackQuery):
     # کیبورد جدید (انتخاب سر صحبت + شروع دور)
     kb = InlineKeyboardMarkup(row_width=1)
     kb.add(
-        InlineKeyboardButton("👑 انتخاب سر صحبت", callback_data="choose_speaker"),
+        InlineKeyboardButton("👑 انتخاب سر صحبت", callback_data="choose_head"),
         InlineKeyboardButton("▶ شروع دور", callback_data="start_round")
     )
+    
     # ویرایش پیام لابی به پیام شروع بازی
     try:
-        await bot.edit_message_text(
-            chat_id=group_chat_id,
-            message_id=game_message_id,
-            text=text,
-            parse_mode="HTML",
-            reply_markup=kb
-        )
+        if lobby_message_id:
+            await bot.edit_message_text(
+                chat_id=group_chat_id,
+                message_id=lobby_message_id,
+                text=text,
+                parse_mode="HTML",
+                reply_markup=kb
+            )
+        else:
+            msg = await bot.send_message(group_chat_id, text, parse_mode="HTML", reply_markup=kb)
+            lobby_message_id = msg.message_id
     except Exception as e:
-        print("❌ خطا در ویرایش پیام:", e)
-
-    await callback.answer()
-
+        print("❌ خطا در ویرایش پیام لابی:", e)
+        
+    await callback.answer("✅ بازی شروع شد و نقش‌ها پخش شد!")
 #==================================
 #منو انتخاب سر صحبت (نمایش گزینه خودکار/دستی)
 #==================================
