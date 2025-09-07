@@ -6,6 +6,7 @@ import logging
 from aiogram import Bot, Dispatcher, types
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.utils import executor
+import html
 
 # ======================
 # تنظیمات ربات
@@ -566,6 +567,7 @@ async def start_play(callback: types.CallbackQuery):
         # ✅ اضافه شده
     # ساخت متن لیست بازیکنان بر اساس صندلی‌ها
     players_list = "\n".join(
+        seats = {seat: (uid, players[uid]) for seat, uid in player_slots.items()}
         [f"{seat}. <a href='tg://user?id={uid}'>{name}</a>" for seat, (uid, name) in seats.items()]
     )
 
@@ -630,11 +632,13 @@ async def speaker_auto(callback: types.CallbackQuery):
     if callback.from_user.id != moderator_id:
         await callback.answer("❌ فقط گرداننده می‌تواند انتخاب کند.", show_alert=True)
         return
-
+    seats = {seat: (uid, players[uid]) for seat, uid in player_slots.items()}
     seats_list = sorted(seats.keys())
     current_speaker = random.choice(seats_list)  # انتخاب رندوم صندلی
     current_turn_index = seats_list.index(current_speaker)
     turn_order = seats_list[current_turn_index:] + seats_list[:current_turn_index]
+
+
 
     await bot.answer_callback_query(callback.id, "✅ سر صحبت به صورت رندوم انتخاب شد.")
 
@@ -656,7 +660,8 @@ async def speaker_manual(callback: types.CallbackQuery):
     if callback.from_user.id != moderator_id:
         await callback.answer("❌ فقط گرداننده می‌تواند انتخاب کند.", show_alert=True)
         return
-
+        
+    seats = {seat: (uid, players[uid]) for seat, uid in player_slots.items()}
     kb = InlineKeyboardMarkup(row_width=2)
     for seat, (uid, name) in seats.items():
         kb.add(InlineKeyboardButton(f"{seat}. {name}", callback_data=f"set_speaker_{seat}"))
@@ -709,7 +714,7 @@ async def start_round(callback: types.CallbackQuery):
     if not turn_order:
         await callback.answer("❌ هنوز سر صحبت انتخاب نشده.", show_alert=True)
         return
-
+    seats = {seat: (uid, players[uid]) for seat, uid in player_slots.items()}
     first = turn_order[0]
     uid, name = seats[first]
 
