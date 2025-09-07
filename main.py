@@ -387,8 +387,8 @@ async def update_lobby():
         )
 
         if not lobby_message_id:
-        msg = await bot.send_message(group_chat_id, text, reply_markup=kb, parse_mode="HTML")
-        lobby_message_id = msg.message_id
+            msg = await bot.send_message(group_chat_id, text, reply_markup=kb, parse_mode="HTML")
+            lobby_message_id = msg.message_id
         else:
         await bot.edit_message_text(chat_id=group_chat_id, message_id=lobby_message_id,
                                 text=text, reply_markup=kb, parse_mode="HTML")
