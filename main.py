@@ -223,7 +223,16 @@ async def scenario_selected(callback: types.CallbackQuery):
     lobby_active = True
     await update_lobby()
 
+@dp.callback_query_handler(lambda c: c.data.startswith("moderator_"))
+async def moderator_selected(callback: types.CallbackQuery):
+    global moderator_id, lobby_active
+    moderator_id = int(callback.data.replace("moderator_", ""))
+    lobby_active = True   # بعد از انتخاب گرداننده هم لابی فعال میشه
 
+    await callback.answer("🎩 گرداننده انتخاب شد.")
+
+    # فقط پیام لابی اصلی آپدیت بشه
+    await update_lobby()
 
 async def moderator_selected(callback: types.CallbackQuery):
     global moderator_id, lobby_active
