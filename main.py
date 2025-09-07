@@ -366,6 +366,7 @@ async def update_lobby():
     # ✅ دکمه لغو بازی فقط برای مدیران
     if moderator_id and moderator_id in admins:
         kb.add(InlineKeyboardButton("🚫 لغو بازی", callback_data="cancel_game"))
+        
 
     # ✅ دکمه شروع بازی در صورت کافی بودن بازیکنان
     if selected_scenario and moderator_id:
@@ -375,6 +376,8 @@ async def update_lobby():
             kb.add(InlineKeyboardButton("▶ شروع بازی", callback_data="start_play"))
         elif len(players) > max_players:
             text += "\n⚠️ تعداد بازیکنان بیش از ظرفیت این سناریو است."
+            kb.add(InlineKeyboardButton("🎭 پخش نقش", callback_data="distribute_roles"))
+    
 
     # 🔄 بروزرسانی پیام لابی
     try:
@@ -707,6 +710,38 @@ async def head_set(callback: types.CallbackQuery):
 
     await render_game_message(edit=True)
     await callback.answer("✅ سر صحبت انتخاب شد.")
+
+#==========================
+# پخش نقش و شروع تنظیمات بازی
+#==========================
+
+@dp.callback_query_handler(lambda c: c.data == "distribute_roles")
+async def distribute_roles_callback(callback: types.CallbackQuery):
+    await distribute_roles()  # نقش‌ها به بازیکنان ارسال می‌شوند
+    # ساخت متن لیست بازیکنان بر اساس صندلی
+    seats = {seat: (uid, players[uid]) for seat, uid in player_slots.items()}
+    players_list = "\n".join(
+        [f"{seat}. <a href='tg://user?id={uid}'>{name}</a>" for seat, (uid, name) in seats.items()]
+    )
+
+    text = (
+        "🎭 نقش‌ها پخش شد!\n\n"
+        f"👥 لیست بازیکنان:\n{players_list}\n\n"
+        "ℹ️ برای دیدن نقش به پیوی ربات بروید.\n"
+        "👑 گرداننده سر صحبت را انتخاب کند تا بازی شروع شود."
+    )
+
+    # کیبورد جدید: انتخاب سر صحبت + شروع دور
+    kb = InlineKeyboardMarkup(row_width=1)
+    kb.add(
+        InlineKeyboardButton("👑 انتخاب سر صحبت", callback_data="choose_head"),
+        InlineKeyboardButton("▶ شروع دور", callback_data="start_round")
+    )
+
+    # ویرایش پیام لابی
+    await bot.edit_message_text(text, chat_id=group_chat_id, message_id=lobby_message_id, reply_markup=kb, parse_mode="HTML")
+    await callback.answer("✅ نقش‌ها پخش شد!")
+
 
 #=====================================
 # شروع دور — تبدیل سر صحبت به ترتیب نوبت و آغاز اولین نوبت
