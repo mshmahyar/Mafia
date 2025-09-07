@@ -216,12 +216,12 @@ async def scenario_selected(callback: types.CallbackQuery):
     global selected_scenario
     selected_scenario = callback.data.replace("scenario_", "")
     await callback.answer(f"📝 سناریو «{selected_scenario}» انتخاب شد.")
-
+    await update_lobby()
    
     #اگر لابی فعال است و پیام لابی وجود دارد → آن را بروزرسانی کن تا صندلی‌ها/ورود نمایش داده شود
     global lobby_active
     lobby_active = True
-    await update_lobby()
+
 
 @dp.callback_query_handler(lambda c: c.data.startswith("moderator_"))
 async def moderator_selected(callback: types.CallbackQuery):
