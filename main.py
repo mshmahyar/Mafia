@@ -360,8 +360,8 @@ async def update_lobby():
             reply_markup=kb,
             parse_mode="HTML"
         )
-    except Exception as e:
-        # در صورت خطا، لاگ کن اما برنامه قطع نشود
+        except Exception as e:
+            # در صورت خطا، لاگ کن اما برنامه قطع نشود
         
 
 
