@@ -352,16 +352,17 @@ async def update_lobby():
 
 
     # بروزرسانی پیام لابی (استفاده از HTML برای parse mode چون bot با HTML مقداردهی شده)
-    try:
-        await bot.edit_message_text(
-            text,
-            chat_id=group_chat_id,
-            message_id=lobby_message_id,
-            reply_markup=kb,
-            parse_mode="HTML"
-        )
-        except Exception as e:
-            # در صورت خطا، لاگ کن اما برنامه قطع نشود
+try:
+    await bot.edit_message_text(
+        text,
+        chat_id=group_chat_id,
+        message_id=lobby_message_id,
+        reply_markup=kb,
+        parse_mode="HTML"
+    )
+except Exception as e:
+    # در صورت خطا، لاگ کن اما برنامه قطع نشود
+    logging.error(f"خطا هنگام بروزرسانی پیام لابی: {e}")
         
 
 
