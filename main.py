@@ -44,6 +44,7 @@ paused_main_duration = None # (اختیاری) مدت زمان نوبت اصلی
 DEFAULT_TURN_DURATION = 120  # مقدار پیش‌فرض نوبت اصلی (در صورت تمایل تغییر بده)
 challenges = {}  # {player_id: {"type": "before"/"after", "challenger": user_id}}
 challenge_active = False
+game_message_id = msg.message_id
 
 # ======================
 # لود سناریوها
@@ -377,25 +378,21 @@ async def update_lobby():
     
 
     # 🔄 بروزرسانی پیام لابی
-    try:
-        await bot.edit_message_text(
-            text,
-            chat_id=group_chat_id,
-            message_id=lobby_message_id,
-            reply_markup=kb,
-            parse_mode="HTML"
-        )
-
-        if not lobby_message_id:
+    if lobby_message_id:
+        try:
+            await bot.edit_message_text(text, chat_id=group_chat_id, message_id=lobby_message_id, reply_markup=kb, parse_mode="HTML")
+        except Exception:
+            # اگر ویرایش نشد، یک پیام جدید ارسال شود
             msg = await bot.send_message(group_chat_id, text, reply_markup=kb, parse_mode="HTML")
             lobby_message_id = msg.message_id
-        else:
-            await bot.edit_message_text(chat_id=group_chat_id, message_id=lobby_message_id,
-                                text=text, reply_markup=kb, parse_mode="HTML")
-    except Exception as e:
-        logging.exception("⚠️ Failed to edit lobby, sending new message")
+    else:
         msg = await bot.send_message(group_chat_id, text, reply_markup=kb, parse_mode="HTML")
         lobby_message_id = msg.message_id
+
+        except Exception as e:
+            logging.exception("⚠️ Failed to edit lobby, sending new message")
+            msg = await bot.send_message(group_chat_id, text, reply_markup=kb, parse_mode="HTML")
+            lobby_message_id = msg.message_id
 
 
 # ======================
@@ -743,7 +740,9 @@ async def distribute_roles_callback(callback: types.CallbackQuery):
     )
 
     # ویرایش پیام لابی
-    await bot.edit_message_text(text, chat_id=group_chat_id, message_id=lobby_message_id, reply_markup=kb, parse_mode="HTML")
+    # بعد از distribute_roles
+    msg = await bot.edit_message_text(text, chat_id=group_chat_id, message_id=lobby_message_id, reply_markup=kb, parse_mode="HTML")
+    game_message_id = msg.message_id
     await callback.answer("✅ نقش‌ها پخش شد!")
 
 
