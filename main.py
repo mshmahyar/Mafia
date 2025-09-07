@@ -329,10 +329,7 @@ async def update_lobby():
     global lobby_message_id
     if not group_chat_id or not lobby_message_id:
         return
-    if not lobby_message_id:
-        msg = await bot.send_message(group_chat_id, text, reply_markup=kb, parse_mode="HTML")
-        lobby_message_id = msg.message_id
-        return
+
 
 
     text = f"📋 **لیست بازی:**\n"
@@ -373,10 +370,10 @@ async def update_lobby():
         min_players = scenarios[selected_scenario]["min_players"]
         max_players = len(scenarios[selected_scenario]["roles"])
         if min_players <= len(players) <= max_players:
-            kb.add(InlineKeyboardButton("▶ شروع بازی", callback_data="start_play"))
+            kb.add(InlineKeyboardButton("🎭 پخش نقش", callback_data="distribute_roles"))
         elif len(players) > max_players:
             text += "\n⚠️ تعداد بازیکنان بیش از ظرفیت این سناریو است."
-            kb.add(InlineKeyboardButton("🎭 پخش نقش", callback_data="distribute_roles"))
+            
     
 
     # 🔄 بروزرسانی پیام لابی
@@ -388,6 +385,13 @@ async def update_lobby():
             reply_markup=kb,
             parse_mode="HTML"
         )
+
+    if not lobby_message_id:
+        msg = await bot.send_message(group_chat_id, text, reply_markup=kb, parse_mode="HTML")
+        lobby_message_id = msg.message_id
+    else:
+        await bot.edit_message_text(chat_id=group_chat_id, message_id=lobby_message_id,
+                                text=text, reply_markup=kb, parse_mode="HTML")
     except Exception as e:
         logging.exception("⚠️ Failed to edit lobby, sending new message")
         msg = await bot.send_message(group_chat_id, text, reply_markup=kb, parse_mode="HTML")
