@@ -344,8 +344,8 @@ async def update_lobby():
         current_turn_index = 0
         game_running = True    
     if len(players) < min_players:
-    await callback.answer("❌ تعداد بازیکنان کافی نیست.", show_alert=True)
-    return
+        await callback.answer("❌ تعداد بازیکنان کافی نیست.", show_alert=True)
+        return
     elif len(players) > max_players:
         await callback.answer("❌ تعداد بازیکنان بیش از ظرفیت این سناریو است.", show_alert=True)
         return
