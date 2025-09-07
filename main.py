@@ -30,6 +30,7 @@ group_chat_id = None
 admins = set()
 game_running = False     # وقتی بازی واقعاً شروع شده است (نقش‌ها ارسال شدند)
 lobby_active = False     # وقتی لابی فعال است (انتخاب سناریو و گرداننده)
+
 turn_order = []             # ترتیب نوبت‌ها
 current_turn_index = 0      # اندیس نوبت فعلی
 current_turn_message_id = None  # پیام پین شده برای نوبت
@@ -434,60 +435,283 @@ async def back_to_lobby(callback: types.CallbackQuery):
     await update_lobby()
     await callback.answer()
 
+#======================
+# تابع کمکی برای پخش نقش‌ها
+#======================
+
+async def distribute_roles():
+    """
+    نقش‌ها را به پیوی بازیکنان می‌فرستد و یک mapping از user_id -> role برمی‌گرداند
+    """
+    roles = scenarios[selected_scenario]["roles"]
+    player_ids = list(players.keys())
+
+    # shuffle roles but keep length consistent
+    shuffled_roles = random.sample(roles, len(player_ids))
+
+    mapping = {}
+    for pid, role in zip(player_ids, shuffled_roles):
+        mapping[pid] = role
+        try:
+            await bot.send_message(pid, f"🎭 نقش شما: {html.escape(str(role))}")
+        except Exception:
+            if moderator_id:
+                await bot.send_message(moderator_id, f"⚠ نمی‌توانم نقش را به {players.get(pid, pid)} ارسال کنم.")
+
+    # ارسال لیست نقش‌ها به گرداننده (اگر وجود داشته باشد)
+    if moderator_id:
+        text = "📜 لیست نقش‌ها:\n"
+        for pid, role in mapping.items():
+            text += f"{players.get(pid,'❓')} → {role}\n"
+        try:
+            await bot.send_message(moderator_id, text)
+        except Exception:
+            pass
+
+    return mapping
+
+
+#======================
+# تابع کمکی برای ساخت / بروزرسانی پیام گروه (پیام «بازی شروع شد»
+#======================
+
+async def render_game_message(edit=True):
+    """
+    نمایش یا ویرایش پیام 'بازی شروع شد' در گروه بر اساس player_slots (صندلی‌ها).
+    اگر edit==True سعی می‌کنیم پیام قبلی را ویرایش کنیم، در غیر اینصورت پیام جدید می‌فرستیم.
+    """
+    global game_message_id
+
+    if not group_chat_id:
+        return
+
+    # لیست بازیکنان بر اساس صندلی مرتب
+    max_players = len(scenarios[selected_scenario]["roles"])
+    lines = []
+    for seat in range(1, max_players+1):
+        if seat in player_slots:
+            uid = player_slots[seat]
+            name = players.get(uid, "❓")
+            lines.append(f"{seat}. <a href='tg://user?id={uid}'>{html.escape(name)}</a>")
+    players_list = "\n".join(lines) if lines else "هیچ بازیکنی ثبت نشده است."
+
+    head_text = ""
+    if current_head_seat:
+        head_uid = player_slots.get(current_head_seat)
+        head_name = players.get(head_uid, "❓")
+        head_text = f"\n\nسر صحبت: صندلی {current_head_seat} - <a href='tg://user?id={head_uid}'>{html.escape(head_name)}</a>"
+
+    text = (
+        "🎮 بازی شروع شد!\n"
+        "📩 نقش‌ها در پیوی ارسال شدند.\n\n"
+        f"لیست بازیکنان حاضر (بر اساس صندلی):\n{players_list}\n\n"
+        "ℹ️ برای دیدن نقش به پیوی ربات برید\n"
+        "📜 لیست نقش‌ها برای گرداننده ارسال شد"
+        f"{head_text}\n\n"
+        "🎤 گرداننده باید «سر صحبت» را انتخاب کند و سپس «شروع دور» را بزند."
+    )
+
+    kb = InlineKeyboardMarkup(row_width=1)
+    kb.add(InlineKeyboardButton("🎯 انتخاب سر صحبت", callback_data="choose_head"))
+    kb.add(InlineKeyboardButton("▶ شروع دور", callback_data="start_round"))
+
+    try:
+        if edit and game_message_id:
+            await bot.edit_message_text(text, chat_id=group_chat_id, message_id=game_message_id,
+                                        parse_mode="HTML", reply_markup=kb)
+        else:
+            msg = await bot.send_message(group_chat_id, text, parse_mode="HTML", reply_markup=kb)
+            game_message_id = msg.message_id
+    except Exception:
+        # اگر ویرایش شکست خورد، پیام جدید بفرست و id را ذخیره کن
+        msg = await bot.send_message(group_chat_id, text, parse_mode="HTML", reply_markup=kb)
+        game_message_id = msg.message_id
 
 
 # ======================
 # شروع بازی و نوبت اول
 # ======================
+
 @dp.callback_query_handler(lambda c: c.data == "start_play")
 async def start_play(callback: types.CallbackQuery):
-    global game_running, lobby_active, turn_order, current_turn_index, group_chat_id
+    global game_running, lobby_active, turn_order, current_turn_index, game_message_id
 
+    # فقط گرداننده می‌تواند شروع کند
     if callback.from_user.id != moderator_id:
         await callback.answer("❌ فقط گرداننده می‌تواند بازی را شروع کند.", show_alert=True)
         return
 
-    if not group_chat_id:
-        group_chat_id = callback.message.chat.id
-
-    roles = scenarios[selected_scenario]["roles"]
-    if len(players) < len(roles):
-        await callback.answer(f"❌ تعداد بازیکنان کافی نیست! حداقل {len(roles)} نفر نیاز است.", show_alert=True)
+    if not selected_scenario:
+        await callback.answer("❌ سناریو انتخاب نشده.", show_alert=True)
         return
 
-    # بازی واقعاً شروع شد
+    max_players = len(scenarios[selected_scenario]["roles"])
+    # اطمینان از اینکه صندلی‌ها حداقل به اندازه حداقل بازیکنان پر شده‌اند
+    occupied_seats = [s for s in range(1, max_players+1) if s in player_slots]
+    if len(occupied_seats) < scenarios[selected_scenario]["min_players"]:
+        await callback.answer(f"❌ تعداد بازیکنان کافی نیست. حداقل {scenarios[selected_scenario]['min_players']} صندلی باید انتخاب شود.", show_alert=True)
+        return
+
+    # یا اگر خواستی می‌تونی اصرار کنی که همهٔ بازیکنان صندلی انتخاب کنند:
+    if len(occupied_seats) != len(players):
+        await callback.answer("❌ لطفا همه بازیکنان ابتدا صندلی انتخاب کنند تا لیست مرتب بر اساس صندلی ساخته شود.", show_alert=True)
+        return
+
     game_running = True
     lobby_active = False
 
-    shuffled_roles = random.sample(roles, len(players))
-    player_ids = list(players.keys())
-    turn_order = player_ids.copy()
-    random.shuffle(turn_order)
+    # پخش نقش‌ها
+    await distribute_roles()
+
+    # ساخت و ارسال پیام جدید «بازی شروع شد» (و ذخیره message_id)
+    await render_game_message(edit=False)
+
+    await callback.answer("✅ نقش‌ها ارسال شدند — پیام بازی در گروه نمایش داده شد.")
+
+
+# منو انتخاب سر صحبت (نمایش گزینه خودکار/دستی)
+@dp.callback_query_handler(lambda c: c.data == "choose_head")
+async def choose_head(callback: types.CallbackQuery):
+    if callback.from_user.id != moderator_id:
+        await callback.answer("❌ فقط گرداننده می‌تواند این کار را انجام دهد.", show_alert=True)
+        return
+
+    kb = InlineKeyboardMarkup(row_width=1)
+    kb.add(InlineKeyboardButton("🎲 انتخاب خودکار", callback_data="head_random"))
+    kb.add(InlineKeyboardButton("✋ انتخاب دستی", callback_data="head_manual"))
+    # ویرایش پیام بازی (menu)
+    try:
+        await bot.edit_message_text("🔧 روش انتخاب سر صحبت را انتخاب کنید:", chat_id=group_chat_id, message_id=game_message_id, reply_markup=kb)
+    except Exception:
+        await callback.answer("⚠ خطا در نمایش منو.", show_alert=True)
+    await callback.answer()
+
+
+# انتخاب خودکار
+@dp.callback_query_handler(lambda c: c.data == "head_random")
+async def head_random(callback: types.CallbackQuery):
+    global current_head_seat
+    if callback.from_user.id != moderator_id:
+        await callback.answer("❌ فقط گرداننده می‌تواند این کار را انجام دهد.", show_alert=True)
+        return
+
+    max_players = len(scenarios[selected_scenario]["roles"])
+    seats = [s for s in range(1, max_players+1) if s in player_slots]
+    if not seats:
+        await callback.answer("❌ هیچ صندلی‌ای انتخاب نشده.", show_alert=True)
+        return
+
+    seat = random.choice(seats)
+    current_head_seat = seat
+
+    # اعلام و بازگرداندن منوی اصلی
+    try:
+        await bot.edit_message_text(f"✅ سر صحبت به صورت رندوم انتخاب شد: صندلی {seat}.",
+                                    chat_id=group_chat_id, message_id=game_message_id, parse_mode="HTML")
+    except Exception:
+        pass
+
+    # دوباره render اصلی را فراخوانی کن (تا متن کامل + دکمه‌ها بیاد)
+    await render_game_message(edit=True)
+    await callback.answer("✅ سر صحبت انتخاب شد.")
+
+
+# انتخاب دستی → نمایش لیست صندلی‌ها با دکمه برای انتخاب
+@dp.callback_query_handler(lambda c: c.data == "head_manual")
+async def head_manual(callback: types.CallbackQuery):
+    if callback.from_user.id != moderator_id:
+        await callback.answer("❌ فقط گرداننده می‌تواند این کار را انجام دهد.", show_alert=True)
+        return
+
+    max_players = len(scenarios[selected_scenario]["roles"])
+    kb = InlineKeyboardMarkup(row_width=2)
+    for seat in range(1, max_players+1):
+        if seat in player_slots:
+            uid = player_slots[seat]
+            name = players.get(uid, "❓")
+            kb.insert(InlineKeyboardButton(f"{seat}. {name}", callback_data=f"head_set_{seat}"))
+
+    try:
+        await bot.edit_message_text("👆 یکی از بازیکنان را به عنوان سر صحبت انتخاب کنید:", chat_id=group_chat_id, message_id=game_message_id, reply_markup=kb)
+    except Exception:
+        await callback.answer("⚠ خطا در نمایش لیست انتخاب دستی.", show_alert=True)
+    await callback.answer()
+
+
+@dp.callback_query_handler(lambda c: c.data.startswith("head_set_"))
+async def head_set(callback: types.CallbackQuery):
+    global current_head_seat
+    if callback.from_user.id != moderator_id:
+        await callback.answer("❌ فقط گرداننده می‌تواند این کار را انجام دهد.", show_alert=True)
+        return
+
+    seat = int(callback.data.split("_")[2])
+    if seat not in player_slots:
+        await callback.answer("⚠ این صندلی خالی است.", show_alert=True)
+        return
+
+    current_head_seat = seat
+    try:
+        uid = player_slots[seat]
+        name = players.get(uid, "❓")
+        await bot.edit_message_text(f"✅ سر صحبت انتخاب شد: صندلی {seat} - <a href='tg://user?id={uid}'>{html.escape(name)}</a>",
+                                    chat_id=group_chat_id, message_id=game_message_id, parse_mode="HTML")
+    except Exception:
+        pass
+
+    await render_game_message(edit=True)
+    await callback.answer("✅ سر صحبت انتخاب شد.")
+
+#=====================================
+# شروع دور — تبدیل سر صحبت به ترتیب نوبت و آغاز اولین نوبت
+#=====================================
+
+@dp.callback_query_handler(lambda c: c.data == "start_round")
+async def start_round(callback: types.CallbackQuery):
+    global turn_order, current_turn_index
+
+    if callback.from_user.id != moderator_id:
+        await callback.answer("❌ فقط گرداننده می‌تواند شروع دور را بزند.", show_alert=True)
+        return
+
+    if not current_head_seat:
+        await callback.answer("❌ ابتدا سر صحبت را انتخاب کنید.", show_alert=True)
+        return
+
+    max_players = len(scenarios[selected_scenario]["roles"])
+    seats = [s for s in range(1, max_players+1) if s in player_slots]
+    if not seats:
+        await callback.answer("❌ هیچ صندلی‌ای انتخاب نشده.", show_alert=True)
+        return
+
+    # ترتیب صندلی‌ها از سر صحبت شروع می‌شود
+    try:
+        idx = seats.index(current_head_seat)
+    except ValueError:
+        await callback.answer("⚠ صندلی سر صحبت در لیست صندلی‌ها نیست.", show_alert=True)
+        return
+
+    ordered_seats = seats[idx:] + seats[:idx]
+    # تبدیل به user_idها
+    turn_order = [player_slots[s] for s in ordered_seats]
     current_turn_index = 0
 
-    # ارسال نقش‌ها به بازیکنان
-    for pid, role in zip(player_ids, shuffled_roles):
-        try:
-            await bot.send_message(pid, f"🎭 نقش شما: {role}")
-        except:
-            if moderator_id:
-                await bot.send_message(moderator_id, f"⚠ نمی‌توانم نقش را به {players[pid]} ارسال کنم.")
+    # اعلام ترتیب در گروه
+    order_text = " → ".join([str(s) for s in ordered_seats])
+    await bot.send_message(group_chat_id, f"🔊 ترتیب صحبت‌ها (صندلی): {order_text}")
 
-    if moderator_id:
-        text = "📜 نقش‌ها برای بازیکنان:\n"
-        for pid, role in zip(player_ids, shuffled_roles):
-            text += f"{players[pid]} → {role}\n"
-        await bot.send_message(moderator_id, text)
-
-    await callback.answer("✅ بازی شروع شد!")
-
+    # شروع نوبت اول با استفاده از start_turn موجود (که قبلاً در کدت هست)
     if turn_order:
-        await start_turn(turn_order[0])
+        await start_turn(turn_order[0], duration=DEFAULT_TURN_DURATION, is_challenge=False)
+
+    await callback.answer("✅ دور شروع شد.")
+
 
 
 # ======================
 # نکست نوبت
 # ======================
+
 @dp.callback_query_handler(lambda c: c.data.startswith("next_turn_"))
 async def next_turn_callback(callback: types.CallbackQuery):
     global current_turn_index, turn_order, turn_timer_task
@@ -583,45 +807,6 @@ async def countdown(player_id, duration, message_id, is_challenge=False):
 # ======================
 # شروع بازی و نوبت اول
 # ======================
-@dp.callback_query_handler(lambda c: c.data == "start_play")
-async def start_play(callback: types.CallbackQuery):
-    global turn_order, current_turn_index, group_chat_id
-
-    if callback.from_user.id != moderator_id:
-        await callback.answer("❌ فقط گرداننده می‌تواند بازی را شروع کند.", show_alert=True)
-        return
-
-    if not group_chat_id:
-        group_chat_id = callback.message.chat.id
-
-    roles = scenarios[selected_scenario]["roles"]
-    if len(players) < len(roles):
-        await callback.answer(f"❌ تعداد بازیکنان کافی نیست! حداقل {len(roles)} نفر نیاز است.", show_alert=True)
-        return
-
-    shuffled_roles = random.sample(roles, len(players))
-    player_ids = list(players.keys())
-    turn_order = player_ids.copy()
-    random.shuffle(turn_order)
-    current_turn_index = 0
-
-    for pid, role in zip(player_ids, shuffled_roles):
-        try:
-            await bot.send_message(pid, f"🎭 نقش شما: {role}")
-        except:
-            if moderator_id:
-                await bot.send_message(moderator_id, f"⚠ نمی‌توانم نقش را به {players[pid]} ارسال کنم.")
-
-    if moderator_id:
-        text = "📜 نقش‌ها برای بازیکنان:\n"
-        for pid, role in zip(player_ids, shuffled_roles):
-            text += f"{players[pid]} → {role}\n"
-        await bot.send_message(moderator_id, text)
-
-    await callback.answer("✅ بازی شروع شد!")
-
-    if turn_order:
-        await start_turn(turn_order[0])
 
 
 # ======================
