@@ -562,14 +562,46 @@ async def start_play(callback: types.CallbackQuery):
 
     # پخش نقش‌ها
     await distribute_roles()
+    
+        # ✅ اضافه شده
+    # ساخت متن لیست بازیکنان بر اساس صندلی‌ها
+    players_list = "\n".join(
+        [f"{seat}. <a href='tg://user?id={uid}'>{name}</a>" for seat, (uid, name) in seats.items()]
+    )
 
-    # ساخت و ارسال پیام جدید «بازی شروع شد» (و ذخیره message_id)
-    await render_game_message(edit=False)
+    text = (
+        "🎮 بازی شروع شد!\n"
+        "📩 نقش‌ها در پیوی ارسال شدند.\n\n"
+        f"👥 لیست بازیکنان حاضر در بازی:\n{players_list}\n\n"
+        "ℹ️ برای دیدن نقش به پیوی ربات بروید.\n"
+        "📜 لیست نقش‌ها به گرداننده ارسال شد.\n\n"
+        "👑 گرداننده سر صحبت را انتخاب کند و شروع دور را بزند."
+    )
 
-    await callback.answer("✅ نقش‌ها ارسال شدند — پیام بازی در گروه نمایش داده شد.")
+    # کیبورد جدید (انتخاب سر صحبت + شروع دور)
+    kb = InlineKeyboardMarkup(row_width=1)
+    kb.add(
+        InlineKeyboardButton("👑 انتخاب سر صحبت", callback_data="choose_speaker"),
+        InlineKeyboardButton("▶ شروع دور", callback_data="start_round")
+    )
+    # ویرایش پیام لابی به پیام شروع بازی
+    try:
+        await bot.edit_message_text(
+            chat_id=group_chat_id,
+            message_id=game_message_id,
+            text=text,
+            parse_mode="HTML",
+            reply_markup=kb
+        )
+    except Exception as e:
+        print("❌ خطا در ویرایش پیام:", e)
 
+    await callback.answer()
 
-# منو انتخاب سر صحبت (نمایش گزینه خودکار/دستی)
+#==================================
+#منو انتخاب سر صحبت (نمایش گزینه خودکار/دستی)
+#==================================
+
 @dp.callback_query_handler(lambda c: c.data == "choose_head")
 async def choose_head(callback: types.CallbackQuery):
     if callback.from_user.id != moderator_id:
@@ -586,56 +618,56 @@ async def choose_head(callback: types.CallbackQuery):
         await callback.answer("⚠ خطا در نمایش منو.", show_alert=True)
     await callback.answer()
 
+#=======================================
+# انتخاب خودکار → نمایش لیست صندلی‌ها با دکمه برای انتخاب
+#=======================================
 
-# انتخاب خودکار
-@dp.callback_query_handler(lambda c: c.data == "head_random")
-async def head_random(callback: types.CallbackQuery):
-    global current_head_seat
+@dp.callback_query_handler(lambda c: c.data == "speaker_auto")
+async def speaker_auto(callback: types.CallbackQuery):
+    import random
+    global current_speaker, turn_order, current_turn_index
+
     if callback.from_user.id != moderator_id:
-        await callback.answer("❌ فقط گرداننده می‌تواند این کار را انجام دهد.", show_alert=True)
+        await callback.answer("❌ فقط گرداننده می‌تواند انتخاب کند.", show_alert=True)
         return
 
-    max_players = len(scenarios[selected_scenario]["roles"])
-    seats = [s for s in range(1, max_players+1) if s in player_slots]
-    if not seats:
-        await callback.answer("❌ هیچ صندلی‌ای انتخاب نشده.", show_alert=True)
-        return
+    seats_list = sorted(seats.keys())
+    current_speaker = random.choice(seats_list)  # انتخاب رندوم صندلی
+    current_turn_index = seats_list.index(current_speaker)
+    turn_order = seats_list[current_turn_index:] + seats_list[:current_turn_index]
 
-    seat = random.choice(seats)
-    current_head_seat = seat
+    await bot.answer_callback_query(callback.id, "✅ سر صحبت به صورت رندوم انتخاب شد.")
 
-    # اعلام و بازگرداندن منوی اصلی
-    try:
-        await bot.edit_message_text(f"✅ سر صحبت به صورت رندوم انتخاب شد: صندلی {seat}.",
-                                    chat_id=group_chat_id, message_id=game_message_id, parse_mode="HTML")
-    except Exception:
-        pass
-
-    # دوباره render اصلی را فراخوانی کن (تا متن کامل + دکمه‌ها بیاد)
-    await render_game_message(edit=True)
-    await callback.answer("✅ سر صحبت انتخاب شد.")
+    # برگردوندن منوی قبلی (انتخاب سر صحبت + شروع دور)
+    kb = InlineKeyboardMarkup(row_width=1)
+    kb.add(
+        InlineKeyboardButton("👑 انتخاب سر صحبت", callback_data="choose_speaker"),
+        InlineKeyboardButton("▶ شروع دور", callback_data="start_round")
+    )
+    await bot.edit_message_reply_markup(group_chat_id, game_message_id, reply_markup=kb)
 
 
+#=======================================
 # انتخاب دستی → نمایش لیست صندلی‌ها با دکمه برای انتخاب
-@dp.callback_query_handler(lambda c: c.data == "head_manual")
-async def head_manual(callback: types.CallbackQuery):
+#=======================================
+
+@dp.callback_query_handler(lambda c: c.data == "speaker_manual")
+async def speaker_manual(callback: types.CallbackQuery):
     if callback.from_user.id != moderator_id:
-        await callback.answer("❌ فقط گرداننده می‌تواند این کار را انجام دهد.", show_alert=True)
+        await callback.answer("❌ فقط گرداننده می‌تواند انتخاب کند.", show_alert=True)
         return
 
-    max_players = len(scenarios[selected_scenario]["roles"])
     kb = InlineKeyboardMarkup(row_width=2)
-    for seat in range(1, max_players+1):
-        if seat in player_slots:
-            uid = player_slots[seat]
-            name = players.get(uid, "❓")
-            kb.insert(InlineKeyboardButton(f"{seat}. {name}", callback_data=f"head_set_{seat}"))
+    for seat, (uid, name) in seats.items():
+        kb.add(InlineKeyboardButton(f"{seat}. {name}", callback_data=f"set_speaker_{seat}"))
 
-    try:
-        await bot.edit_message_text("👆 یکی از بازیکنان را به عنوان سر صحبت انتخاب کنید:", chat_id=group_chat_id, message_id=game_message_id, reply_markup=kb)
-    except Exception:
-        await callback.answer("⚠ خطا در نمایش لیست انتخاب دستی.", show_alert=True)
+    await bot.edit_message_reply_markup(
+        group_chat_id,
+        game_message_id,
+        reply_markup=kb
+    )
     await callback.answer()
+
 
 
 @dp.callback_query_handler(lambda c: c.data.startswith("head_set_"))
@@ -671,41 +703,20 @@ async def start_round(callback: types.CallbackQuery):
     global turn_order, current_turn_index
 
     if callback.from_user.id != moderator_id:
-        await callback.answer("❌ فقط گرداننده می‌تواند شروع دور را بزند.", show_alert=True)
+        await callback.answer("❌ فقط گرداننده می‌تواند شروع کند.", show_alert=True)
         return
 
-    if not current_head_seat:
-        await callback.answer("❌ ابتدا سر صحبت را انتخاب کنید.", show_alert=True)
+    if not turn_order:
+        await callback.answer("❌ هنوز سر صحبت انتخاب نشده.", show_alert=True)
         return
 
-    max_players = len(scenarios[selected_scenario]["roles"])
-    seats = [s for s in range(1, max_players+1) if s in player_slots]
-    if not seats:
-        await callback.answer("❌ هیچ صندلی‌ای انتخاب نشده.", show_alert=True)
-        return
+    first = turn_order[0]
+    uid, name = seats[first]
 
-    # ترتیب صندلی‌ها از سر صحبت شروع می‌شود
-    try:
-        idx = seats.index(current_head_seat)
-    except ValueError:
-        await callback.answer("⚠ صندلی سر صحبت در لیست صندلی‌ها نیست.", show_alert=True)
-        return
+    text = f"🎤 دور صحبت‌ها شروع شد!\nنوبت از <a href='tg://user?id={uid}'>{name}</a> (صندلی {first}) آغاز می‌شود."
+    await bot.send_message(group_chat_id, text, parse_mode="HTML")
 
-    ordered_seats = seats[idx:] + seats[:idx]
-    # تبدیل به user_idها
-    turn_order = [player_slots[s] for s in ordered_seats]
-    current_turn_index = 0
-
-    # اعلام ترتیب در گروه
-    order_text = " → ".join([str(s) for s in ordered_seats])
-    await bot.send_message(group_chat_id, f"🔊 ترتیب صحبت‌ها (صندلی): {order_text}")
-
-    # شروع نوبت اول با استفاده از start_turn موجود (که قبلاً در کدت هست)
-    if turn_order:
-        await start_turn(turn_order[0], duration=DEFAULT_TURN_DURATION, is_challenge=False)
-
-    await callback.answer("✅ دور شروع شد.")
-
+    await callback.answer()
 
 
 # ======================
