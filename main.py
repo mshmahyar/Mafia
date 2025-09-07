@@ -329,15 +329,26 @@ async def update_lobby():
         min_players = scenario_data["min_players"]
         max_players = len(scenario_data["roles"])
         if min_players <= len(players) <= max_players:
-        # اگر هنوز نقش‌ها پخش نشده‌اند → دکمه "پخش نقش" نمایش داده شود
             if not roles_distributed:
+                # دکمه "پخش نقش" وقتی نقش‌ها هنوز پخش نشده‌اند
                 kb.add(InlineKeyboardButton("🎭 پخش نقش", callback_data="distribute_roles"))
-        else:
-            # اگر نقش‌ها قبلاً پخش شده‌اند → دکمه شروع بازی فعال شود
-            kb.add(InlineKeyboardButton("▶ شروع بازی", callback_data="start_play"))
+            else:
+                # بعد از پخش نقش، دکمه "شروع بازی"
+                kb.add(InlineKeyboardButton("🚀 شروع بازی", callback_data="start_play"))
         elif len(players) > max_players:
             text += "\n⚠️ تعداد بازیکنان بیش از ظرفیت این سناریو است."
             
+        player_ids = list(players.keys())
+        turn_order = player_ids.copy()
+        random.shuffle(turn_order)
+        current_turn_index = 0
+        game_running = True    
+    if len(players) < min_players:
+    await callback.answer("❌ تعداد بازیکنان کافی نیست.", show_alert=True)
+    return
+    elif len(players) > max_players:
+        await callback.answer("❌ تعداد بازیکنان بیش از ظرفیت این سناریو است.", show_alert=True)
+        return
 
 
     # بروزرسانی پیام لابی (استفاده از HTML برای parse mode چون bot با HTML مقداردهی شده)
@@ -351,7 +362,7 @@ async def update_lobby():
         )
     except Exception as e:
         # در صورت خطا، لاگ کن اما برنامه قطع نشود
-        logging.exception("خطا هنگام بروزرسانی لابی:")
+        
 
 
 # ======================
