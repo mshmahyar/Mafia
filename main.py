@@ -274,6 +274,7 @@ async def moderator_selected(callback: types.CallbackQuery):
 @dp.callback_query_handler(lambda c: c.data == "join_game")
 async def join_game_callback(callback: types.CallbackQuery):
     user = callback.from_user
+    print("✅ ورود به بازی کلیک شد!")
 
     # جلوگیری از ورود در حین بازی
     if game_running:
@@ -281,9 +282,9 @@ async def join_game_callback(callback: types.CallbackQuery):
         return
 
     # جلوگیری از ورود گرداننده
-    if user.id == moderator_id:
-        await callback.answer("❌ گرداننده نمی‌تواند وارد بازی شود.", show_alert=True)
-        return
+    #if user.id == moderator_id:
+        #await callback.answer("❌ گرداننده نمی‌تواند وارد بازی شود.", show_alert=True)
+        #return
 
     # جلوگیری از ورود دوباره بازیکن
     if user.id in players:
