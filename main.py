@@ -330,9 +330,9 @@ async def update_lobby():
     if not group_chat_id or not lobby_message_id:
         return
     if not lobby_message_id:
-    msg = await bot.send_message(group_chat_id, text, reply_markup=kb, parse_mode="HTML")
-    lobby_message_id = msg.message_id
-    return
+        msg = await bot.send_message(group_chat_id, text, reply_markup=kb, parse_mode="HTML")
+        lobby_message_id = msg.message_id
+        return
 
 
     text = f"📋 **لیست بازی:**\n"
