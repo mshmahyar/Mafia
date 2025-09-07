@@ -566,8 +566,8 @@ async def start_play(callback: types.CallbackQuery):
     
         # ✅ اضافه شده
     # ساخت متن لیست بازیکنان بر اساس صندلی‌ها
+    seats = {seat: (uid, players[uid]) for seat, uid in player_slots.items()}
     players_list = "\n".join(
-        seats = {seat: (uid, players[uid]) for seat, uid in player_slots.items()}
         [f"{seat}. <a href='tg://user?id={uid}'>{name}</a>" for seat, (uid, name) in seats.items()]
     )
 
