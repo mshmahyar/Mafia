@@ -330,8 +330,8 @@ async def update_lobby():
         max_players = len(scenario_data["roles"])
         if min_players <= len(players) <= max_players:
         # اگر هنوز نقش‌ها پخش نشده‌اند → دکمه "پخش نقش" نمایش داده شود
-        if not roles_distributed:
-            kb.add(InlineKeyboardButton("🎭 پخش نقش", callback_data="distribute_roles"))
+            if not roles_distributed:
+                kb.add(InlineKeyboardButton("🎭 پخش نقش", callback_data="distribute_roles"))
         else:
             # اگر نقش‌ها قبلاً پخش شده‌اند → دکمه شروع بازی فعال شود
             kb.add(InlineKeyboardButton("▶ شروع بازی", callback_data="start_play"))
