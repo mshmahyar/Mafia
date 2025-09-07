@@ -345,7 +345,6 @@ async def update_lobby():
         max_players = len(scenarios[selected_scenario]["roles"])
         for i in range(1, max_players + 1):
             if i in player_slots:
-                # اگه صندلی پر باشه → نمایش نام بازیکن
                 player_name = players.get(player_slots[i], "❓")
                 kb.insert(InlineKeyboardButton(f"{i} ({player_name})", callback_data=f"slot_{i}"))
             else:
@@ -371,13 +370,18 @@ async def update_lobby():
             text += "\n⚠️ تعداد بازیکنان بیش از ظرفیت این سناریو است."
 
     # 🔄 بروزرسانی پیام لابی
-    await bot.edit_message_text(
-        text,
-        chat_id=group_chat_id,
-        message_id=lobby_message_id,
-        reply_markup=kb,
-        parse_mode="Markdown"
-    )
+    try:
+        await bot.edit_message_text(
+            text,
+            chat_id=group_chat_id,
+            message_id=lobby_message_id,
+            reply_markup=kb,
+            parse_mode="HTML"
+        )
+    except Exception as e:
+        logging.exception("⚠️ Failed to edit lobby, sending new message")
+        msg = await bot.send_message(group_chat_id, text, reply_markup=kb, parse_mode="HTML")
+        lobby_message_id = msg.message_id
 
 
 # ======================
