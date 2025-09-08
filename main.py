@@ -375,7 +375,8 @@ async def update_lobby():
         min_players = scenarios[selected_scenario]["min_players"]
         max_players = len(scenarios[selected_scenario]["roles"])
         if min_players <= len(players) <= max_players:
-            kb.add(InlineKeyboardButton("🎭 پخش نقش", callback_data="distribute_roles"))
+            if moderator_id and callback.from_user.id == moderator_id:
+                kb.add(InlineKeyboardButton("🎭 پخش نقش", callback_data="distribute_roles"))
         elif len(players) > max_players:
             text += "\n⚠️ تعداد بازیکنان بیش از ظرفیت این سناریو است."
             
@@ -621,7 +622,6 @@ async def start_play(callback: types.CallbackQuery):
 #==================================
 #منو انتخاب سر صحبت (نمایش گزینه خودکار/دستی)
 #==================================
-
 @dp.callback_query_handler(lambda c: c.data == "choose_head")
 async def choose_head(callback: types.CallbackQuery):
     global game_message_id
@@ -631,21 +631,28 @@ async def choose_head(callback: types.CallbackQuery):
         return
 
     kb = InlineKeyboardMarkup(row_width=1)
-    kb.add(InlineKeyboardButton("🎲 انتخاب خودکار", callback_data="head_random"))
-    kb.add(InlineKeyboardButton("✋ انتخاب دستی", callback_data="head_manual"))
+    kb.add(
+        InlineKeyboardButton("🎲 انتخاب خودکار", callback_data="head_random"),
+        InlineKeyboardButton("✋ انتخاب دستی", callback_data="head_manual")
+    )
+
+    text = "🔧 روش انتخاب سر صحبت را انتخاب کنید:"
 
     try:
+        # تلاش برای ویرایش پیام قبلی
         await bot.edit_message_text(
-            "🔧 روش انتخاب سر صحبت را انتخاب کنید:",
+            text,
             chat_id=group_chat_id,
             message_id=game_message_id,
             reply_markup=kb
         )
-        await callback.answer()  # فقط یک بار
     except Exception as e:
         logging.warning(f"⚠️ خطا در نمایش منو: {e}")
-        await callback.answer("⚠ خطا در نمایش منو.", show_alert=True)
+        # اگر پیام قبلی قابل ویرایش نبود → پیام جدید بفرست
+        msg = await bot.send_message(group_chat_id, text, reply_markup=kb)
+        game_message_id = msg.message_id  # بروزرسانی آیدی پیام جدید
 
+    await callback.answer()
 
 #=======================================
 # انتخاب خودکار → نمایش لیست صندلی‌ها با دکمه برای انتخاب
@@ -733,6 +740,12 @@ async def head_set(callback: types.CallbackQuery):
 @dp.callback_query_handler(lambda c: c.data == "distribute_roles")
 async def distribute_roles_callback(callback: types.CallbackQuery):
     await distribute_roles()  # نقش‌ها به بازیکنان ارسال می‌شوند
+    global game_message_id
+    
+    if callback.from_user.id != moderator_id:
+        await callback.answer("❌ فقط گرداننده می‌تواند نقش‌ها را پخش کند.", show_alert=True)
+        return
+    
     # ساخت متن لیست بازیکنان بر اساس صندلی
     seats = {seat: (uid, players[uid]) for seat, uid in player_slots.items()}
     players_list = "\n".join(
