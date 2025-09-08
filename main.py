@@ -104,7 +104,17 @@ async def handle_slot(callback: types.CallbackQuery):
     if not selected_scenario:
         await callback.answer("❌ هنوز سناریویی انتخاب نشده.", show_alert=True)
         return
-    
+    try:
+        seat_number = int(callback.data.split("_", 1)[1])
+    except Exception:
+        await callback.answer("⚠ شماره صندلی نامعتبر است.", show_alert=True)
+        return
+        
+    if user.id not in players:
+        await callback.answer("❌ ابتدا وارد بازی شوید.", show_alert=True)
+        return   
+        
+        
     slot_num = int(callback.data.replace("slot_", ""))
     user_id = callback.from_user.id
 
@@ -112,6 +122,9 @@ async def handle_slot(callback: types.CallbackQuery):
     if slot_num in player_slots and player_slots[slot_num] == user_id:
         del player_slots[slot_num]
         await callback.answer(f"جایگاه {slot_num} آزاد شد ✅")
+        await update_lobby()
+        return
+        
     else:
         # اگه جایگاه پر باشه
         if seat_number in player_slots and player_slots[seat_number] != user.id:
@@ -124,8 +137,6 @@ async def handle_slot(callback: types.CallbackQuery):
             
     player_slots[seat_number] = user.id
     await callback.answer(f"✅ صندلی {seat_number} برای شما رزرو شد.")        
-
-
     await update_lobby()
 
 
@@ -335,17 +346,28 @@ async def update_lobby():
         return
 
 
-
+    # ساخت متن لابی
     text = f"📋 **لیست بازی:**\n"
     text += f"سناریو: {selected_scenario or 'انتخاب نشده'}\n"
     text += f"گرداننده: {(await bot.get_chat_member(group_chat_id, moderator_id)).user.full_name if moderator_id else 'انتخاب نشده'}\n\n"
 
+    if moderator_id:
+        try:
+            moderator = await bot.get_chat_member(group_chat_id, moderator_id)
+            text += f"گرداننده: {html.escape(moderator.user.full_name)}\n\n"
+        except Exception:
+            text += "گرداننده: انتخاب نشده\n\n"
+    else:
+        text += "گرداننده: انتخاب نشده\n\n"
+        
     if players:
         for uid, name in players.items():
-            seat = next((s for s, u in player_slots.items() if u == uid), "⏳")
-            text += f"{seat}. <a href='tg://user?id={uid}'>{name}</a>\n"
+            seat = next((s for s, u in player_slots.items() if u == uid), None)
+            seat_str = f" (صندلی {seat})" if seat else ""
+            text += f"- <a href='tg://user?id={uid}'>{html.escape(name)}</a>{seat_str}\n"
     else:
-        text += "هیچ بازیکنی وارد بازی نشده است.\n"
+        text += "هیچ بازیکنی وارد بازی نشده است.\n"        
+
 
     kb = InlineKeyboardMarkup(row_width=5)
 
@@ -452,25 +474,97 @@ async def back_to_lobby(callback: types.CallbackQuery):
 #======================
 # تابع کمکی برای پخش نقش‌ها
 #======================
+@dp.callback_query_handler(lambda c: c.data == "distribute_roles")
+async def distribute_roles_callback(callback: types.CallbackQuery):
+    global game_message_id, lobby_message_id, game_running
+
+    # فقط گرداننده اجازه دارد
+    if callback.from_user.id != moderator_id:
+        await callback.answer("❌ فقط گرداننده می‌تواند نقش‌ها را پخش کند.", show_alert=True)
+        return
+
+    if not selected_scenario:
+        await callback.answer("❌ سناریو انتخاب نشده.", show_alert=True)
+        return
+
+    try:
+        mapping = await distribute_roles()
+    except Exception as e:
+        logging.exception("⚠️ مشکل در پخش نقش‌ها: %s", e)
+        await callback.answer("❌ خطا در پخش نقش‌ها.", show_alert=True)
+        return
+
+    # نمایش خلاصه در گروه و تبديل پیام لابی به پیام بازی (game_message_id)
+    seats = {seat: (uid, players.get(uid, "❓")) for seat, uid in player_slots.items()}
+    players_list = "\n".join([f"{seat}. <a href='tg://user?id={uid}'>{html.escape(name)}</a>" for seat, (uid, name) in sorted(seats.items())])
+
+    text = (
+        "🎭 نقش‌ها پخش شد!\n\n"
+        f"👥 لیست بازیکنان:\n{players_list}\n\n"
+        "ℹ️ برای دیدن نقش به پیوی ربات بروید.\n"
+        "👑 گرداننده سر صحبت را انتخاب کند تا بازی شروع شود."
+    )
+
+    kb = InlineKeyboardMarkup(row_width=1)
+    kb.add(InlineKeyboardButton("👑 انتخاب سر صحبت", callback_data="choose_head"))
+    kb.add(InlineKeyboardButton("▶ شروع دور", callback_data="start_round"))
+
+    try:
+        if lobby_message_id:
+            msg = await bot.edit_message_text(text, chat_id=group_chat_id, message_id=lobby_message_id, parse_mode="HTML", reply_markup=kb)
+            game_message_id = msg.message_id
+            # اگر می‌خواهی بعد از پخش نقش پیام لابی را نداشته باشی می‌توانی lobby_message_id = None کنی
+        else:
+            msg = await bot.send_message(group_chat_id, text, parse_mode="HTML", reply_markup=kb)
+            game_message_id = msg.message_id
+    except Exception as e:
+        logging.warning("⚠️ distribute_roles: edit failed, sending new message: %s", e)
+        msg = await bot.send_message(group_chat_id, text, parse_mode="HTML", reply_markup=kb)
+        game_message_id = msg.message_id
+
+    game_running = True
+    await callback.answer("✅ نقش‌ها پخش شد!")
+
+
 
 async def distribute_roles():
     """
-    نقش‌ها را به پیوی بازیکنان می‌فرستد و یک mapping از user_id -> role برمی‌گرداند
+    نقش‌ها را به پیوی بازیکنان می‌فرستد و mapping از user_id -> role برمی‌گرداند.
+    ترتیب اختصاص نقش: اگر صندلی رزرو شده باشد بر اساس شماره صندلی، در غیر اینصورت بر اساس insertion-order players.
     """
-    roles = scenarios[selected_scenario]["roles"]
-    player_ids = list(players.keys())
+    if not selected_scenario:
+        raise ValueError("سناریو انتخاب نشده")
 
-    # shuffle roles but keep length consistent
-    shuffled_roles = random.sample(roles, len(player_ids))
+    roles_template = scenarios[selected_scenario]["roles"]
+    # ترتیب بازیکنان: بر اساس صندلی اگر موجود باشد، وگرنه بر اساس players.keys()
+    if player_slots:
+        player_ids = [player_slots[s] for s in sorted(player_slots.keys())]
+    else:
+        player_ids = list(players.keys())
+
+    # آماده سازی لیست نقش‌ها مطابق تعداد بازیکنان
+    roles = list(roles_template)  # کپی
+    if len(player_ids) > len(roles):
+        # اگر نیاز به نقش بیشتر هست، بقیه را "شهروند" قرار می‌دهیم
+        roles += ["شهروند"] * (len(player_ids) - len(roles))
+    # اگر نقش‌ها بیشتر از بازیکنان بود، کافی است کوتاهش کنیم
+    roles = roles[:len(player_ids)]
+
+    random.shuffle(roles)
 
     mapping = {}
-    for pid, role in zip(player_ids, shuffled_roles):
+    for pid, role in zip(player_ids, roles):
         mapping[pid] = role
         try:
             await bot.send_message(pid, f"🎭 نقش شما: {html.escape(str(role))}")
-        except Exception:
+        except Exception as e:
+            # به گرداننده اطلاع بده که ارسال به یکی از بازیکنان شکست خورد
+            logging.warning("⚠️ ارسال نقش به %s شکست خورد: %s", pid, e)
             if moderator_id:
-                await bot.send_message(moderator_id, f"⚠ نمی‌توانم نقش را به {players.get(pid, pid)} ارسال کنم.")
+                try:
+                    await bot.send_message(moderator_id, f"⚠ نمی‌توانم نقش را به {players.get(pid, pid)} ارسال کنم.")
+                except:
+                    pass
 
     # ارسال لیست نقش‌ها به گرداننده (اگر وجود داشته باشد)
     if moderator_id:
@@ -642,7 +736,8 @@ async def choose_head(callback: types.CallbackQuery):
             text,
             chat_id=group_chat_id,
             message_id=game_message_id,
-            reply_markup=kb
+            reply_markup=kb,
+            parse_mode="HTML"
         )
     except Exception as e:
         logging.warning(f"⚠️ خطا در نمایش منو: {e}")
@@ -655,7 +750,6 @@ async def choose_head(callback: types.CallbackQuery):
 #=======================================
 # انتخاب خودکار → نمایش لیست صندلی‌ها با دکمه برای انتخاب
 #=======================================
-
 @dp.callback_query_handler(lambda c: c.data == "speaker_auto")
 async def speaker_auto(callback: types.CallbackQuery):
     import random
@@ -664,23 +758,30 @@ async def speaker_auto(callback: types.CallbackQuery):
     if callback.from_user.id != moderator_id:
         await callback.answer("❌ فقط گرداننده می‌تواند انتخاب کند.", show_alert=True)
         return
-    seats = {seat: (uid, players[uid]) for seat, uid in player_slots.items()}
-    seats_list = sorted(seats.keys())
-    current_speaker = random.choice(seats_list)  # انتخاب رندوم صندلی
+
+    if not player_slots:
+        await callback.answer("⚠ هیچ صندلی ثبت نشده.", show_alert=True)
+        return
+
+    seats_list = sorted(player_slots.keys())
+    current_speaker = random.choice(seats_list)
     current_turn_index = seats_list.index(current_speaker)
     turn_order = seats_list[current_turn_index:] + seats_list[:current_turn_index]
 
+    await callback.answer("✅ سر صحبت به صورت رندوم انتخاب شد.")
 
-
-    await bot.answer_callback_query(callback.id, "✅ سر صحبت به صورت رندوم انتخاب شد.")
-
-    # برگردوندن منوی قبلی (انتخاب سر صحبت + شروع دور)
+    # بازگرداندن منوی بازی (انتخاب سر صحبت + شروع دور)
     kb = InlineKeyboardMarkup(row_width=1)
-    kb.add(
-        InlineKeyboardButton("👑 انتخاب سر صحبت", callback_data="choose_speaker"),
-        InlineKeyboardButton("▶ شروع دور", callback_data="start_round")
-    )
-    await bot.edit_message_reply_markup(group_chat_id, game_message_id, reply_markup=kb)
+    kb.add(InlineKeyboardButton("👑 انتخاب سر صحبت", callback_data="choose_head"))
+    kb.add(InlineKeyboardButton("▶ شروع دور", callback_data="start_round"))
+
+    try:
+        await bot.edit_message_reply_markup(chat_id=group_chat_id, message_id=game_message_id, reply_markup=kb)
+    except Exception:
+        # اگر ویرایش نشد، ساکت باش
+        pass
+
+
 
 
 #=======================================
@@ -692,44 +793,27 @@ async def speaker_manual(callback: types.CallbackQuery):
     if callback.from_user.id != moderator_id:
         await callback.answer("❌ فقط گرداننده می‌تواند انتخاب کند.", show_alert=True)
         return
-        
-    seats = {seat: (uid, players[uid]) for seat, uid in player_slots.items()}
+
+    if not player_slots:
+        await callback.answer("⚠ هیچ صندلی ثبت نشده.", show_alert=True)
+        return
+
+    seats = {seat: (uid, players.get(uid, "❓")) for seat, uid in player_slots.items()}
     kb = InlineKeyboardMarkup(row_width=2)
-    for seat, (uid, name) in seats.items():
-        kb.add(InlineKeyboardButton(f"{seat}. {name}", callback_data=f"set_speaker_{seat}"))
+    for seat, (uid, name) in sorted(seats.items()):
+        kb.add(InlineKeyboardButton(f"{seat}. {html.escape(name)}", callback_data=f"head_set_{seat}"))
 
-    await bot.edit_message_reply_markup(
-        group_chat_id,
-        game_message_id,
-        reply_markup=kb
-    )
-    await callback.answer()
-
-
-
-@dp.callback_query_handler(lambda c: c.data.startswith("head_set_"))
-async def head_set(callback: types.CallbackQuery):
-    global current_head_seat
-    if callback.from_user.id != moderator_id:
-        await callback.answer("❌ فقط گرداننده می‌تواند این کار را انجام دهد.", show_alert=True)
-        return
-
-    seat = int(callback.data.split("_")[2])
-    if seat not in player_slots:
-        await callback.answer("⚠ این صندلی خالی است.", show_alert=True)
-        return
-
-    current_head_seat = seat
     try:
-        uid = player_slots[seat]
-        name = players.get(uid, "❓")
-        await bot.edit_message_text(f"✅ سر صحبت انتخاب شد: صندلی {seat} - <a href='tg://user?id={uid}'>{html.escape(name)}</a>",
-                                    chat_id=group_chat_id, message_id=game_message_id, parse_mode="HTML")
+        await bot.edit_message_reply_markup(chat_id=group_chat_id, message_id=game_message_id, reply_markup=kb)
     except Exception:
-        pass
+        # اگر اصلا ویرایش نشد، ارسال پیام جدید با همین کیبورد
+        try:
+            msg = await bot.send_message(group_chat_id, "✋ یکی از بازیکنان را انتخاب کنید:", reply_markup=kb)
+            game_message_id = msg.message_id
+        except:
+            pass
 
-    await render_game_message(edit=True)
-    await callback.answer("✅ سر صحبت انتخاب شد.")
+    await callback.answer()
 
 #==========================
 # پخش نقش و شروع تنظیمات بازی
