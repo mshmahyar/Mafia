@@ -742,9 +742,6 @@ async def distribute_roles_callback(callback: types.CallbackQuery):
     await distribute_roles()  # نقش‌ها به بازیکنان ارسال می‌شوند
     global game_message_id
     
-    if callback.from_user.id != moderator_id:
-        await callback.answer("❌ فقط گرداننده می‌تواند نقش‌ها را پخش کند.", show_alert=True)
-        return
     
     # ساخت متن لیست بازیکنان بر اساس صندلی
     seats = {seat: (uid, players[uid]) for seat, uid in player_slots.items()}
