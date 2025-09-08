@@ -1088,7 +1088,7 @@ async def next_turn_callback(callback: types.CallbackQuery):
             pass
         await callback.answer("⚔ چالش ثبت‌شده اجرا می‌شود.", show_alert=True)
         # اجرای نوبت چالشِ چالش‌کننده
-        await (challenger_id, duration=60, is_challenge=True)
+        await start_turn(challenger_id, duration=60, is_challenge=True)
         return
 
     # اگر نه، بریم سراغ بازیکن بعدی در turn_order
