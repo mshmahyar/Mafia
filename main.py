@@ -724,8 +724,8 @@ async def choose_head(callback: types.CallbackQuery):
 
     kb = InlineKeyboardMarkup(row_width=1)
     kb.add(
-        InlineKeyboardButton("🎲 انتخاب خودکار", callback_data="head_random"),
-        InlineKeyboardButton("✋ انتخاب دستی", callback_data="head_manual")
+        InlineKeyboardButton("🎲 انتخاب خودکار", callback_data="speaker_auto"),
+        InlineKeyboardButton("✋ انتخاب دستی", callback_data="speaker_manual")
     )
 
     text = "🔧 روش انتخاب سر صحبت را انتخاب کنید:"
@@ -814,6 +814,45 @@ async def speaker_manual(callback: types.CallbackQuery):
             pass
 
     await callback.answer()
+
+#==========================
+# هد ست
+#==========================
+@dp.callback_query_handler(lambda c: c.data.startswith("head_set_"))
+async def head_set(callback: types.CallbackQuery):
+    global current_speaker, turn_order, current_turn_index
+
+    if callback.from_user.id != moderator_id:
+        await callback.answer("❌ فقط گرداننده می‌تواند انتخاب کند.", show_alert=True)
+        return
+
+    try:
+        seat = int(callback.data.split("_")[2])
+    except (IndexError, ValueError):
+        await callback.answer("⚠ خطای داده صندلی.", show_alert=True)
+        return
+
+    if seat not in player_slots:
+        await callback.answer("⚠ این صندلی رزرو نشده است.", show_alert=True)
+        return
+
+    current_speaker = seat
+    seats_list = sorted(player_slots.keys())
+    current_turn_index = seats_list.index(seat)
+    turn_order = seats_list[current_turn_index:] + seats_list[:current_turn_index]
+
+    await callback.answer(f"✅ صندلی {seat} به عنوان سر صحبت انتخاب شد.")
+
+    # بازگشت به منوی اصلی
+    kb = InlineKeyboardMarkup(row_width=1)
+    kb.add(InlineKeyboardButton("👑 انتخاب سر صحبت", callback_data="choose_head"))
+    kb.add(InlineKeyboardButton("▶ شروع دور", callback_data="start_round"))
+
+    await bot.edit_message_reply_markup(
+        chat_id=group_chat_id,
+        message_id=game_message_id,
+        reply_markup=kb
+    )
 
 #==========================
 # پخش نقش و شروع تنظیمات بازی
