@@ -842,6 +842,11 @@ async def head_set(callback: types.CallbackQuery):
     turn_order = seats_list[current_turn_index:] + seats_list[:current_turn_index]
 
     await callback.answer(f"✅ صندلی {seat} به عنوان سر صحبت انتخاب شد.")
+    # جاگذاری سر صحبت در اول لیست نوبت‌ها
+    if head_id in turn_order:
+        turn_order.remove(head_id)
+    turn_order.insert(0, head_id)
+
 
     # بازگشت به منوی اصلی
     kb = InlineKeyboardMarkup(row_width=1)
@@ -853,6 +858,8 @@ async def head_set(callback: types.CallbackQuery):
         message_id=game_message_id,
         reply_markup=kb
     )
+
+
 
 #==========================
 # پخش نقش و شروع تنظیمات بازی
@@ -892,13 +899,18 @@ async def distribute_roles_callback(callback: types.CallbackQuery):
     await callback.answer("✅ نقش‌ها پخش شد!")
 
 
+
 #=====================================
 # شروع دور — تبدیل سر صحبت به ترتیب نوبت و آغاز اولین نوبت
 #=====================================
 
 @dp.callback_query_handler(lambda c: c.data == "start_round")
-async def start_round(callback: types.CallbackQuery):
-    global turn_order, current_turn_index
+async def start_round_handler(callback: types.CallbackQuery):
+    global turn_order, current_turn_index, round_active
+
+    round_active = True
+    current_turn_index = 0  # شروع از سر صحبت
+    await (callback.message.chat.id)
 
     if callback.from_user.id != moderator_id:
         await callback.answer("❌ فقط گرداننده می‌تواند شروع کند.", show_alert=True)
@@ -936,7 +948,7 @@ async def next_turn_callback(callback: types.CallbackQuery):
 
     current_turn_index += 1
     if current_turn_index < len(turn_order):
-        await start_turn(turn_order[current_turn_index])
+        await (turn_order[current_turn_index])
     else:
         if not group_chat_id:
             await callback.answer("⚠ شناسه گروه پیدا نشد.", show_alert=True)
@@ -1016,6 +1028,25 @@ async def countdown(player_id, duration, message_id, is_challenge=False):
 # ======================
 # شروع بازی و نوبت اول
 # ======================
+async def start_turn(chat_id):
+    global turn_order, current_turn_index
+
+    if current_turn_index >= len(turn_order):
+        await bot.send_message(chat_id, "✅ راند به پایان رسید!")
+        return
+
+    current_player_id = turn_order[current_turn_index]
+    current_player_mention = f"<a href='tg://user?id={current_player_id}'>بازیکن</a>"
+
+    await bot.send_message(chat_id, f"نوبت {current_player_mention} است.", parse_mode="HTML")
+
+    # دکمه‌ها
+    keyboard = InlineKeyboardMarkup(row_width=2)
+    keyboard.add(
+        InlineKeyboardButton("درخواست چالش", callback_data=f"challenge_{current_player_id}"),
+        InlineKeyboardButton("Next", callback_data="next_turn")
+    )
+    await bot.send_message(chat_id, "گزینه‌ها:", reply_markup=keyboard)
 
 
 # ======================
@@ -1024,7 +1055,9 @@ async def countdown(player_id, duration, message_id, is_challenge=False):
 @dp.callback_query_handler(lambda c: c.data.startswith("next_"))
 async def next_turn_callback(callback: types.CallbackQuery):
     global current_turn_index, challenge_mode, paused_main_player, paused_main_duration
-
+    current_turn_index += 1
+    await start_turn(callback.message.chat.id)
+    
     # id ای که داخل callback_data فرستاده شده
     user_id = int(callback.data.split("_", 1)[1])
 
@@ -1039,7 +1072,7 @@ async def next_turn_callback(callback: types.CallbackQuery):
             # پاک‌سازی متغیرهای paused
             paused_main_player = None
             paused_main_duration = None
-            await start_turn(resume_id, duration=resume_dur, is_challenge=False)
+            await (resume_id, duration=resume_dur, is_challenge=False)
             return
         else:
             # اگر هیچ paused_main نباشد، معمولاً next یعنی رفتن به نوبت بعدی؛ پایین ادامه بدهیم
@@ -1055,7 +1088,7 @@ async def next_turn_callback(callback: types.CallbackQuery):
             pass
         await callback.answer("⚔ چالش ثبت‌شده اجرا می‌شود.", show_alert=True)
         # اجرای نوبت چالشِ چالش‌کننده
-        await start_turn(challenger_id, duration=60, is_challenge=True)
+        await (challenger_id, duration=60, is_challenge=True)
         return
 
     # اگر نه، بریم سراغ بازیکن بعدی در turn_order
@@ -1067,7 +1100,7 @@ async def next_turn_callback(callback: types.CallbackQuery):
         return
 
     next_player_id = turn_order[current_turn_index]
-    await start_turn(next_player_id, duration=DEFAULT_TURN_DURATION, is_challenge=False)
+    await (next_player_id, duration=DEFAULT_TURN_DURATION, is_challenge=False)
     await callback.answer()
 
 #=======================
@@ -1135,7 +1168,7 @@ async def challenge_choice(callback: types.CallbackQuery):
             turn_timer_task.cancel()
 
         await bot.send_message(group_chat_id, f"⚔ چالش قبل: <b>{challenger_name}</b> یک دقیقه صحبت می‌کند.", parse_mode="HTML")
-        await start_turn(challenger_id, duration=60, is_challenge=True)
+        await (challenger_id, duration=60, is_challenge=True)
 
     elif action == "after":
         # ثبت برای اجرا بعد از پایان نوبت اصلی
