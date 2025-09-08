@@ -1100,7 +1100,7 @@ async def next_turn_callback(callback: types.CallbackQuery):
         return
 
     next_player_id = turn_order[current_turn_index]
-    await (next_player_id, duration=DEFAULT_TURN_DURATION, is_challenge=False)
+    await start_turn(next_player_id, duration=DEFAULT_TURN_DURATION, is_challenge=False)
     await callback.answer()
 
 #=======================
