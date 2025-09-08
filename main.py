@@ -1072,7 +1072,7 @@ async def next_turn_callback(callback: types.CallbackQuery):
             # پاک‌سازی متغیرهای paused
             paused_main_player = None
             paused_main_duration = None
-            await (resume_id, duration=resume_dur, is_challenge=False)
+            await start_turn(resume_id, duration=resume_dur, is_challenge=False)
             return
         else:
             # اگر هیچ paused_main نباشد، معمولاً next یعنی رفتن به نوبت بعدی؛ پایین ادامه بدهیم
