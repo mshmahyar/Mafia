@@ -624,6 +624,8 @@ async def start_play(callback: types.CallbackQuery):
 
 @dp.callback_query_handler(lambda c: c.data == "choose_head")
 async def choose_head(callback: types.CallbackQuery):
+    global game_message_id
+
     if callback.from_user.id != moderator_id:
         await callback.answer("❌ فقط گرداننده می‌تواند این کار را انجام دهد.", show_alert=True)
         return
@@ -631,12 +633,19 @@ async def choose_head(callback: types.CallbackQuery):
     kb = InlineKeyboardMarkup(row_width=1)
     kb.add(InlineKeyboardButton("🎲 انتخاب خودکار", callback_data="head_random"))
     kb.add(InlineKeyboardButton("✋ انتخاب دستی", callback_data="head_manual"))
-    # ویرایش پیام بازی (menu)
+
     try:
-        await bot.edit_message_text("🔧 روش انتخاب سر صحبت را انتخاب کنید:", chat_id=group_chat_id, message_id=game_message_id, reply_markup=kb)
-    except Exception:
+        await bot.edit_message_text(
+            "🔧 روش انتخاب سر صحبت را انتخاب کنید:",
+            chat_id=group_chat_id,
+            message_id=game_message_id,
+            reply_markup=kb
+        )
+        await callback.answer()  # فقط یک بار
+    except Exception as e:
+        logging.warning(f"⚠️ خطا در نمایش منو: {e}")
         await callback.answer("⚠ خطا در نمایش منو.", show_alert=True)
-    await callback.answer()
+
 
 #=======================================
 # انتخاب خودکار → نمایش لیست صندلی‌ها با دکمه برای انتخاب
