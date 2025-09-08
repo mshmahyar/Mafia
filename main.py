@@ -585,7 +585,7 @@ async def start_round_handler(callback: types.CallbackQuery):
     global turn_order, current_turn_index, round_active
 
     if not turn_order:
-    seats_list = sorted(player_slots.keys())
+        seats_list = sorted(player_slots.keys())
         if not seats_list:
             await callback.answer("⚠️ هیچ بازیکنی در بازی نیست.", show_alert=True)
             return
