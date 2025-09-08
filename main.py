@@ -31,7 +31,6 @@ group_chat_id = None
 admins = set()
 game_running = False     # وقتی بازی واقعاً شروع شده است (نقش‌ها ارسال شدند)
 lobby_active = False     # وقتی لابی فعال است (انتخاب سناریو و گرداننده)
-
 turn_order = []             # ترتیب نوبت‌ها
 current_turn_index = 0      # اندیس نوبت فعلی
 current_turn_message_id = None  # پیام پین شده برای نوبت
@@ -98,7 +97,10 @@ def join_menu():
 # ======================
 @dp.callback_query_handler(lambda c: c.data.startswith("slot_"))
 async def handle_slot(callback: types.CallbackQuery):
-    global player_slots
+    global player_slots, player_slots
+    user = callback.from_user
+    seat_number = int(callback.data.split("_")[1])
+    
     if not selected_scenario:
         await callback.answer("❌ هنوز سناریویی انتخاب نشده.", show_alert=True)
         return
@@ -112,15 +114,17 @@ async def handle_slot(callback: types.CallbackQuery):
         await callback.answer(f"جایگاه {slot_num} آزاد شد ✅")
     else:
         # اگه جایگاه پر باشه
-        if slot_num in player_slots:
-            await callback.answer("❌ این جایگاه قبلاً انتخاب شده.", show_alert=True)
-            return
+    if seat_number in player_slots and player_slots[seat_number] != user.id:
+        await callback.answer("❌ این صندلی قبلاً رزرو شده است.", show_alert=True)
+        return
         # اگه بازیکن قبلاً جای دیگه نشسته → اون رو آزاد کن
-        for s, uid in list(player_slots.items()):
-            if uid == user_id:
-                del player_slots[s]
-        player_slots[slot_num] = user_id
-        await callback.answer(f"شما جایگاه {slot_num} را انتخاب کردید ✅")
+    for seat, uid in list(player_slots.items()):
+        if uid == user.id:
+            del player_slots[seat]
+            
+    player_slots[seat_number] = user.id
+    await callback.answer(f"✅ صندلی {seat_number} برای شما رزرو شد.")        
+
 
     await update_lobby()
 
@@ -295,12 +299,12 @@ async def join_game_callback(callback: types.CallbackQuery):
         return
 
     players[user.id] = user.full_name
-    await update_lobby()
     await callback.answer("✅ شما به بازی اضافه شدید!")
-
+    await update_lobby()
 
 @dp.callback_query_handler(lambda c: c.data == "leave_game")
 async def leave_game_callback(callback: types.CallbackQuery):
+    global players, player_slots
     user = callback.from_user
 
     # جلوگیری از خروج در حین بازی
@@ -311,7 +315,7 @@ async def leave_game_callback(callback: types.CallbackQuery):
     if user.id not in players:
         await callback.answer("❌ شما در لیست بازی نیستید!", show_alert=True)
         return
-
+    del players[user.id]
     players.pop(user.id)
 
     # آزاد کردن صندلی اگر انتخاب کرده بود
@@ -319,9 +323,8 @@ async def leave_game_callback(callback: types.CallbackQuery):
         if uid == user.id:
             del player_slots[slot]
 
-    await update_lobby()
     await callback.answer("✅ شما از بازی خارج شدید!")
-
+    await update_lobby()
 
 # ======================
 # بروزرسانی لابی
@@ -339,7 +342,8 @@ async def update_lobby():
 
     if players:
         for uid, name in players.items():
-            text += f"- {name}\n"
+            seat = next((s for s, u in player_slots.items() if u == uid), "⏳")
+            text += f"{seat}. <a href='tg://user?id={uid}'>{name}</a>\n"
     else:
         text += "هیچ بازیکنی وارد بازی نشده است.\n"
 
