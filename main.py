@@ -375,11 +375,9 @@ async def update_lobby():
         min_players = scenarios[selected_scenario]["min_players"]
         max_players = len(scenarios[selected_scenario]["roles"])
         if min_players <= len(players) <= max_players:
-            if moderator_id and callback.from_user.id == moderator_id:
-                kb.add(InlineKeyboardButton("🎭 پخش نقش", callback_data="distribute_roles"))
+            kb.add(InlineKeyboardButton("🎭 پخش نقش", callback_data="distribute_roles"))
         elif len(players) > max_players:
             text += "\n⚠️ تعداد بازیکنان بیش از ظرفیت این سناریو است."
-            
     
 
     # 🔄 بروزرسانی پیام لابی
