@@ -1168,7 +1168,7 @@ async def challenge_choice(callback: types.CallbackQuery):
             turn_timer_task.cancel()
 
         await bot.send_message(group_chat_id, f"⚔ چالش قبل: <b>{challenger_name}</b> یک دقیقه صحبت می‌کند.", parse_mode="HTML")
-        await (challenger_id, duration=60, is_challenge=True)
+        await start_turn(challenger_id, duration=60, is_challenge=True)
 
     elif action == "after":
         # ثبت برای اجرا بعد از پایان نوبت اصلی
