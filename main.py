@@ -114,9 +114,9 @@ async def handle_slot(callback: types.CallbackQuery):
         await callback.answer(f"جایگاه {slot_num} آزاد شد ✅")
     else:
         # اگه جایگاه پر باشه
-    if seat_number in player_slots and player_slots[seat_number] != user.id:
-        await callback.answer("❌ این صندلی قبلاً رزرو شده است.", show_alert=True)
-        return
+        if seat_number in player_slots and player_slots[seat_number] != user.id:
+            await callback.answer("❌ این صندلی قبلاً رزرو شده است.", show_alert=True)
+            return
         # اگه بازیکن قبلاً جای دیگه نشسته → اون رو آزاد کن
     for seat, uid in list(player_slots.items()):
         if uid == user.id:
