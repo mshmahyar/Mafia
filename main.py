@@ -577,7 +577,22 @@ async def distribute_roles():
             pass
 
     return mapping
+#==================
+# شروع راند
+#==================
+@dp.callback_query_handler(lambda c: c.data == "start_round")
+async def start_round_handler(callback: types.CallbackQuery):
+    global turn_order, current_turn_index, round_active
 
+    if not turn_order:
+        await callback.answer("⚠️ هیچ بازیکنی در نوبت‌ها وجود ندارد.", show_alert=True)
+        return
+
+    round_active = True
+    current_turn_index = 0  # شروع از سر صحبت
+
+    await callback.answer()  # بستن لودینگ دکمه
+    await start_turn(callback.message.chat.id, turn_order[current_turn_index])
 
 #======================
 # تابع کمکی برای ساخت / بروزرسانی پیام گروه (پیام «بازی شروع شد»
@@ -621,7 +636,7 @@ async def render_game_message(edit=True):
 
     kb = InlineKeyboardMarkup(row_width=1)
     kb.add(InlineKeyboardButton("🎯 انتخاب سر صحبت", callback_data="choose_head"))
-    kb.add(InlineKeyboardButton("▶ شروع دور", callback_data="start_round"))
+    kb.add(InlineKeyboardButton("▶ شروع دور", callback_data=""))
 
     try:
         if edit and game_message_id:
