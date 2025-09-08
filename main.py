@@ -585,8 +585,11 @@ async def start_round_handler(callback: types.CallbackQuery):
     global turn_order, current_turn_index, round_active
 
     if not turn_order:
-        await callback.answer("⚠️ هیچ بازیکنی در نوبت‌ها وجود ندارد.", show_alert=True)
-        return
+    seats_list = sorted(player_slots.keys())
+        if not seats_list:
+            await callback.answer("⚠️ هیچ بازیکنی در بازی نیست.", show_alert=True)
+            return
+        turn_order = seats_list[:]  # همه بازیکن‌ها به ترتیب صندلی
 
     round_active = True
     current_turn_index = 0  # شروع از سر صحبت
