@@ -781,7 +781,17 @@ async def speaker_auto(callback: types.CallbackQuery):
     # بازگرداندن منوی بازی (انتخاب سر صحبت + شروع دور)
     kb = InlineKeyboardMarkup(row_width=1)
     kb.add(InlineKeyboardButton("👑 انتخاب سر صحبت", callback_data="choose_head"))
-    kb.add(InlineKeyboardButton("▶ شروع
+    kb.add(InlineKeyboardButton("▶ شروع دور", callback_data="start_round"))
+
+    try:
+        await bot.edit_message_reply_markup(
+            chat_id=group_chat_id,
+            message_id=game_message_id,
+            reply_markup=kb
+        )
+    except Exception:
+        pass
+
 
 
 
