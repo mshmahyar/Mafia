@@ -1060,40 +1060,30 @@ async def countdown(player_id, duration, message_id, is_challenge=False):
 # ======================
 # شروع بازی و نوبت اول
 # ======================
-async def start_turn(chat_id):
-    global turn_order, current_turn_index, player_slots
+async def start_turn(chat_id, seat, duration=60, is_challenge=False):
+    global current_turn_index, turn_order
 
-    if current_turn_index >= len(turn_order):
-        await bot.send_message(chat_id, "✅ راند به پایان رسید!")
-        return
-
-    # seat = شماره صندلی از turn_order
-    seat = turn_order[current_turn_index]
     player = player_slots.get(seat)
-
     if not player:
-        await bot.send_message(chat_id, f"⚠️ صندلی {seat} بازیکنی ندارد.")
+        await bot.send_message(chat_id, f"⚠️ صندلی {seat} بازیکن ندارد.")
         return
 
-    user_id = player["id"]
     mention = player.get("mention", f"بازیکن {seat}")
 
+    # دکمه‌ها
+    kb = InlineKeyboardMarkup(row_width=2)
+    kb.add(
+        InlineKeyboardButton("⚔ درخواست چالش", callback_data=f"challenge_{seat}"),
+        InlineKeyboardButton("⏭ نکست", callback_data=f"next_{seat}")
+    )
+
+    # پیام نوبت + دکمه‌ها در یک پیام
     await bot.send_message(
         chat_id,
-        f"🎤 نوبت {mention} است.",
-        parse_mode="HTML"
+        f"🎤 نوبت {mention} شروع شد! ({'چالش' if is_challenge else 'صحبت عادی'})",
+        reply_markup=kb
     )
 
-    # دکمه‌ها
-    keyboard = InlineKeyboardMarkup(row_width=2)
-    keyboard.add(
-        InlineKeyboardButton("💥 درخواست چالش", callback_data=f"challenge_{user_id}"),
-        InlineKeyboardButton("⏭ Next", callback_data="next_turn")
-    )
-    await bot.send_message(chat_id, "گزینه‌ها:", reply_markup=keyboard)
-
-    # آماده کردن ایندکس نفر بعد
-    current_turn_index += 1
 
 
 # ======================
