@@ -750,6 +750,7 @@ async def choose_head(callback: types.CallbackQuery):
 #=======================================
 # انتخاب خودکار → نمایش لیست صندلی‌ها با دکمه برای انتخاب
 #=======================================
+
 @dp.callback_query_handler(lambda c: c.data == "speaker_auto")
 async def speaker_auto(callback: types.CallbackQuery):
     import random
@@ -766,20 +767,21 @@ async def speaker_auto(callback: types.CallbackQuery):
     seats_list = sorted(player_slots.keys())
     current_speaker = random.choice(seats_list)
     current_turn_index = seats_list.index(current_speaker)
+
+    # درست‌کردن ترتیب نوبت‌ها: همه از سر صحبت شروع بشن
     turn_order = seats_list[current_turn_index:] + seats_list[:current_turn_index]
 
-    await callback.answer("✅ سر صحبت به صورت رندوم انتخاب شد.")
+    # اطمینان از اینکه سر صحبت در اول لیست هست
+    if current_speaker in turn_order:
+        turn_order.remove(current_speaker)
+    turn_order.insert(0, current_speaker)
+
+    await callback.answer(f"✅ صندلی {current_speaker} به صورت رندوم سر صحبت شد.")
 
     # بازگرداندن منوی بازی (انتخاب سر صحبت + شروع دور)
     kb = InlineKeyboardMarkup(row_width=1)
     kb.add(InlineKeyboardButton("👑 انتخاب سر صحبت", callback_data="choose_head"))
-    kb.add(InlineKeyboardButton("▶ شروع دور", callback_data="start_round"))
-
-    try:
-        await bot.edit_message_reply_markup(chat_id=group_chat_id, message_id=game_message_id, reply_markup=kb)
-    except Exception:
-        # اگر ویرایش نشد، ساکت باش
-        pass
+    kb.add(InlineKeyboardButton("▶ شروع
 
 
 
@@ -818,6 +820,7 @@ async def speaker_manual(callback: types.CallbackQuery):
 #==========================
 # هد ست
 #==========================
+
 @dp.callback_query_handler(lambda c: c.data.startswith("head_set_"))
 async def head_set(callback: types.CallbackQuery):
     global current_speaker, turn_order, current_turn_index
@@ -836,17 +839,18 @@ async def head_set(callback: types.CallbackQuery):
         await callback.answer("⚠ این صندلی رزرو نشده است.", show_alert=True)
         return
 
+    # تنظیم سر صحبت
     current_speaker = seat
     seats_list = sorted(player_slots.keys())
     current_turn_index = seats_list.index(seat)
     turn_order = seats_list[current_turn_index:] + seats_list[:current_turn_index]
 
     await callback.answer(f"✅ صندلی {seat} به عنوان سر صحبت انتخاب شد.")
-    # جاگذاری سر صحبت در اول لیست نوبت‌ها
-    if head_id in turn_order:
-        turn_order.remove(head_id)
-    turn_order.insert(0, head_id)
 
+    # جاگذاری سر صحبت در اول لیست نوبت‌ها
+    if seat in turn_order:
+        turn_order.remove(seat)
+    turn_order.insert(0, seat)
 
     # بازگشت به منوی اصلی
     kb = InlineKeyboardMarkup(row_width=1)
@@ -858,7 +862,6 @@ async def head_set(callback: types.CallbackQuery):
         message_id=game_message_id,
         reply_markup=kb
     )
-
 
 
 #==========================
@@ -904,29 +907,26 @@ async def distribute_roles_callback(callback: types.CallbackQuery):
 # شروع دور — تبدیل سر صحبت به ترتیب نوبت و آغاز اولین نوبت
 #=====================================
 
-@dp.callback_query_handler(lambda c: c.data == "start_round")
-async def start_round_handler(callback: types.CallbackQuery):
-    global turn_order, current_turn_index, round_active
+async def start_turn(chat_id, seat, duration=60, is_challenge=False):
+    global current_turn_index, turn_order
 
-    round_active = True
-    current_turn_index = 0  # شروع از سر صحبت
-    await (callback.message.chat.id)
-
-    if callback.from_user.id != moderator_id:
-        await callback.answer("❌ فقط گرداننده می‌تواند شروع کند.", show_alert=True)
+    player = player_slots.get(seat)
+    if not player:
+        await bot.send_message(chat_id, f"⚠️ صندلی {seat} بازیکن ندارد.")
         return
 
-    if not turn_order:
-        await callback.answer("❌ هنوز سر صحبت انتخاب نشده.", show_alert=True)
-        return
-    seats = {seat: (uid, players[uid]) for seat, uid in player_slots.items()}
-    first = turn_order[0]
-    uid, name = seats[first]
+    mention = player.get("mention", f"بازیکن {seat}")
 
-    text = f"🎤 دور صحبت‌ها شروع شد!\nنوبت از <a href='tg://user?id={uid}'>{name}</a> (صندلی {first}) آغاز می‌شود."
-    await bot.send_message(group_chat_id, text, parse_mode="HTML")
+    # پیام شروع نوبت
+    msg = await bot.send_message(
+        chat_id,
+        f"🎤 نوبت {mention} شروع شد! ({'چالش' if is_challenge else 'صحبت عادی'})"
+    )
 
-    await callback.answer()
+    # اینجا می‌تونی تایمر، دکمه نکست یا درخواست چالش اضافه کنی
+    # مثلا:
+    # kb = InlineKeyboardMarkup().add(InlineKeyboardButton("⏭ نکست", callback_data="next_turn"))
+    # await bot.edit_message_reply_markup(chat_id, msg.message_id, reply_markup=kb)
 
 
 # ======================
@@ -1029,24 +1029,39 @@ async def countdown(player_id, duration, message_id, is_challenge=False):
 # شروع بازی و نوبت اول
 # ======================
 async def start_turn(chat_id):
-    global turn_order, current_turn_index
+    global turn_order, current_turn_index, player_slots
 
     if current_turn_index >= len(turn_order):
         await bot.send_message(chat_id, "✅ راند به پایان رسید!")
         return
 
-    current_player_id = turn_order[current_turn_index]
-    current_player_mention = f"<a href='tg://user?id={current_player_id}'>بازیکن</a>"
+    # seat = شماره صندلی از turn_order
+    seat = turn_order[current_turn_index]
+    player = player_slots.get(seat)
 
-    await bot.send_message(chat_id, f"نوبت {current_player_mention} است.", parse_mode="HTML")
+    if not player:
+        await bot.send_message(chat_id, f"⚠️ صندلی {seat} بازیکنی ندارد.")
+        return
+
+    user_id = player["id"]
+    mention = player.get("mention", f"بازیکن {seat}")
+
+    await bot.send_message(
+        chat_id,
+        f"🎤 نوبت {mention} است.",
+        parse_mode="HTML"
+    )
 
     # دکمه‌ها
     keyboard = InlineKeyboardMarkup(row_width=2)
     keyboard.add(
-        InlineKeyboardButton("درخواست چالش", callback_data=f"challenge_{current_player_id}"),
-        InlineKeyboardButton("Next", callback_data="next_turn")
+        InlineKeyboardButton("💥 درخواست چالش", callback_data=f"challenge_{user_id}"),
+        InlineKeyboardButton("⏭ Next", callback_data="next_turn")
     )
     await bot.send_message(chat_id, "گزینه‌ها:", reply_markup=keyboard)
+
+    # آماده کردن ایندکس نفر بعد
+    current_turn_index += 1
 
 
 # ======================
