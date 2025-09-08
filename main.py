@@ -390,8 +390,9 @@ async def update_lobby():
             msg = await bot.send_message(group_chat_id, text, reply_markup=kb, parse_mode="HTML")
             lobby_message_id = msg.message_id
     else:
-        msg = await bot.send_message(group_chat_id, text, reply_markup=kb, parse_mode="HTML")
-        lobby_message_id = msg.message_id
+        try:
+            msg = await bot.send_message(group_chat_id, text, reply_markup=kb, parse_mode="HTML")
+            lobby_message_id = msg.message_id
 
         except Exception as e:
             logging.exception("⚠️ Failed to edit lobby, sending new message")
