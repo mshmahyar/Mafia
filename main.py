@@ -26,6 +26,7 @@ players = {}                # بازیکنان: {user_id: name}
 moderator_id = None         # آیدی گرداننده
 selected_scenario = None    # سناریوی انتخابی
 scenarios = {}              # لیست سناریوها
+game_message_id = None
 lobby_message_id = None     # پیام لابی
 group_chat_id = None
 admins = set()
@@ -43,7 +44,6 @@ paused_main_duration = None # (اختیاری) مدت زمان نوبت اصلی
 DEFAULT_TURN_DURATION = 120  # مقدار پیش‌فرض نوبت اصلی (در صورت تمایل تغییر بده)
 challenges = {}  # {player_id: {"type": "before"/"after", "challenger": user_id}}
 challenge_active = False
-game_message_id = msg.message_id
 
 # ======================
 # لود سناریوها
