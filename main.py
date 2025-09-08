@@ -928,15 +928,19 @@ async def start_turn(chat_id, seat, duration=60, is_challenge=False):
     mention = player.get("mention", f"بازیکن {seat}")
 
     # پیام شروع نوبت
-    msg = await bot.send_message(
+    await bot.send_message(
         chat_id,
         f"🎤 نوبت {mention} شروع شد! ({'چالش' if is_challenge else 'صحبت عادی'})"
     )
 
-    # اینجا می‌تونی تایمر، دکمه نکست یا درخواست چالش اضافه کنی
-    # مثلا:
-    # kb = InlineKeyboardMarkup().add(InlineKeyboardButton("⏭ نکست", callback_data="next_turn"))
-    # await bot.edit_message_reply_markup(chat_id, msg.message_id, reply_markup=kb)
+    # دکمه‌ها
+    kb = InlineKeyboardMarkup(row_width=2)
+    kb.add(
+        InlineKeyboardButton("⚔ درخواست چالش", callback_data=f"challenge_{seat}"),
+        InlineKeyboardButton("⏭ نکست", callback_data=f"next_{seat}")
+    )
+    await bot.send_message(chat_id, "⬇ گزینه‌ها:", reply_markup=kb)
+
 
 
 # ======================
