@@ -1180,7 +1180,7 @@ async def challenge_choice(callback: types.CallbackQuery):
     elif action == "none":
         await bot.send_message(group_chat_id, f"🚫 {challenger_name} از گرفتن چالش منصرف شد.", parse_mode="HTML")
 
-    await callback.answer()
+        await callback.answer()
         if challenger_seat is None:
             await bot.send_message(group_chat_id, "⚠️ چالش‌کننده صندلی ندارد؛ چالش لغو شد.")
             await callback.answer()
@@ -1188,7 +1188,7 @@ async def challenge_choice(callback: types.CallbackQuery):
 
         challenge_mode = True
         post_challenge_advance = False
-        await bot.send_message(group_chat_id, f"⚔ چالش قبل برای {html.escape(target_name)} توسط {html.escape(challenger_name)} شروع شد.")
+        await bot.send_message(group_chat_id, f"⚔ چالش قبل صحبت برای {html.escape(target_name)} توسط {html.escape(challenger_name)} شروع شد.")
         await start_turn(challenger_seat, duration=60, is_challenge=True)
 
     elif action == "after":
@@ -1200,7 +1200,7 @@ async def challenge_choice(callback: types.CallbackQuery):
 
         # pending_challenges کلید: seat هدف، مقدار: challenger_id (user id)
         pending_challenges[target_seat] = challenger_id
-        await bot.send_message(group_chat_id, f"⚔ چالش بعد برای {html.escape(target_name)} ثبت شد (چالش‌کننده: {html.escape(challenger_name)}).")
+        await bot.send_message(group_chat_id, f"⚔ چالش بعد صحبت برای {html.escape(target_name)} ثبت شد (چالش‌کننده: {html.escape(challenger_name)}).")
 
     elif action == "none":
         await bot.send_message(group_chat_id, f"🚫 {html.escape(challenger_name)} از چالش برای {html.escape(target_name)} منصرف شد.")
