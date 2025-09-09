@@ -697,8 +697,8 @@ async def start_play(callback: types.CallbackQuery):
     current_turn_index = 0 
 
     if not turn_order:
-    await callback.answer("❌ هیچ بازیکنی روی صندلی ننشسته.", show_alert=True)
-    return
+        await callback.answer("❌ هیچ بازیکنی روی صندلی ننشسته.", show_alert=True)
+        return
 
     if not first_player_id:
         await callback.answer(f"⚠️ صندلی {first_seat} بازیکنی ندارد.", show_alert=True)
