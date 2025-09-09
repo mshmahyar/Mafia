@@ -594,8 +594,9 @@ async def start_round_handler(callback: types.CallbackQuery):
     round_active = True
     current_turn_index = 0  # شروع از سر صحبت
 
-    await callback.answer()  # بستن لودینگ دکمه
-    await start_turn(callback.message.chat.id, turn_order[current_turn_index])
+    first_seat = turn_order[current_turn_index]  # صندلی یا آی‌دی بازیکن اول
+    await start_turn(callback.message.chat.id, first_seat)
+    await callback.answer()
 
 #======================
 # تابع کمکی برای ساخت / بروزرسانی پیام گروه (پیام «بازی شروع شد»
