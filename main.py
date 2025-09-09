@@ -7,6 +7,7 @@ from aiogram import Bot, Dispatcher, types
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.utils import executor
 import html
+import logging
 
 # ======================
 # تنظیمات ربات
@@ -73,8 +74,8 @@ def main_menu_keyboard():
     kb = InlineKeyboardMarkup(row_width=1)
     kb.add(
         InlineKeyboardButton("🎮 بازی جدید", callback_data="new_game"),
-        InlineKeyboardButton("⚙ مدیریت سناریو", callback_data="manage_scenarios"),
-        InlineKeyboardButton("📖 راهنما", callback_data="help")
+        #InlineKeyboardButton("⚙ مدیریت سناریو", callback_data="manage_scenarios"),
+        #InlineKeyboardButton("📖 راهنما", callback_data="help")
     )
     return kb
 
@@ -97,59 +98,86 @@ def join_menu():
 # ======================
 # انتخاب / لغو انتخاب صندلی
 # ======================
+
 @dp.callback_query_handler(lambda c: c.data.startswith("slot_"))
-async def handle_slot(callback: types.CallbackQuery):
-    global player_slots, player_slots
+async def select_slot(callback: types.CallbackQuery):
+    global player_slots
+
     user = callback.from_user
-    seat_number = int(callback.data.split("_")[1])
-    
-    if not selected_scenario:
-        await callback.answer("❌ هنوز سناریویی انتخاب نشده.", show_alert=True)
-        return
     try:
-        seat_number = int(callback.data.split("_", 1)[1])
+        seat_number = int(callback.data.split("_", 1)[1])  # صندلی همیشه int
     except Exception:
         await callback.answer("⚠ شماره صندلی نامعتبر است.", show_alert=True)
         return
-        
-    if user.id not in players:
-        await callback.answer("❌ ابتدا وارد بازی شوید.", show_alert=True)
-        return   
-        
-        
-    slot_num = int(callback.data.replace("slot_", ""))
-    user_id = callback.from_user.id
+
+    if not selected_scenario:
+        await callback.answer("❌ هنوز سناریویی انتخاب نشده.", show_alert=True)
+        return
+
+    user_id = user.id
 
     # اگه همون بازیکن دوباره بزنه → لغو انتخاب
-    if slot_num in player_slots and player_slots[slot_num] == user_id:
-        del player_slots[slot_num]
-        await callback.answer(f"جایگاه {slot_num} آزاد شد ✅")
+    if seat_number in player_slots and player_slots[seat_number] == user_id:
+        del player_slots[seat_number]
+        await callback.answer(f"جایگاه {seat_number} آزاد شد ✅")
         await update_lobby()
         return
-        
-    else:
-        # اگه جایگاه پر باشه
-        if seat_number in player_slots and player_slots[seat_number] != user.id:
-            await callback.answer("❌ این صندلی قبلاً رزرو شده است.", show_alert=True)
-            return
-        # اگه بازیکن قبلاً جای دیگه نشسته → اون رو آزاد کن
-    for seat, uid in list(player_slots.items()):
-        if uid == user.id:
-            del player_slots[seat]
-            
-    player_slots[seat_number] = user.id
-    await callback.answer(f"✅ صندلی {seat_number} برای شما رزرو شد.")        
-    await update_lobby()
-    
-def turn_keyboard(seat, is_challenge=False):
-    kb = InlineKeyboardMarkup(row_width=2)
-    kb.add(InlineKeyboardButton("⏭ نکست", callback_data=f"next_{seat}"))
-    if not is_challenge:
-        player_id = player_slots.get(seat)
-        if player_id:
-            kb.add(InlineKeyboardButton("⚔ درخواست چالش", callback_data=f"challenge_request_{seat}"))
-    return kb
 
+    # اگه صندلی پر باشه
+    if seat_number in player_slots and player_slots[seat_number] != user_id:
+        await callback.answer("❌ این صندلی قبلاً رزرو شده است.", show_alert=True)
+        return
+
+    # اگه بازیکن جای دیگه نشسته → اون رو آزاد کن
+    for seat, uid in list(player_slots.items()):
+        if uid == user_id:
+            del player_slots[seat]
+
+    # ثبت بازیکن در صندلی
+    player_slots[seat_number] = user_id
+
+    # 🔹 تبدیل همه کلیدها به int برای اطمینان
+    player_slots = {int(s): uid for s, uid in player_slots.items()}
+
+    await callback.answer(f"✅ صندلی {seat_number} برای شما رزرو شد.")
+    await update_lobby()
+
+#=======================
+# ------------------
+#=======================
+def resolve_seat_from_entry(entry):
+    """
+    entry ممکنه صندلی (مثلاً 1,2,3) یا user_id (مثلاً 7918162941) باشه.
+    اگر بتوانیم صندلی متناظر را پیدا کنیم، آن را برگردان.
+    در غیر اینصورت None برمی‌گرداند.
+    """
+    try:
+        v = int(entry)
+    except Exception:
+        return None
+
+    # اگر خودش یک صندلی است
+    if v in players:
+        return v
+
+    # اگر v یک user_id است، صندلی متناظر را پیدا کن
+    for seat, uid in players.items():
+        if uid == v:
+            return seat
+
+    return None
+
+def sanitize_turn_order():
+    """ همه آیتم‌های turn_order را به صندلی (seat_id) تبدیل می‌کند و موارد نامعتبر را حذف می‌کند. """
+    global turn_order
+    new_order = []
+    for e in turn_order:
+        seat = resolve_seat_from_entry(e)
+        if seat is None:
+            logging.warning(f"[sanitize] حذف ورودی نامعتبر از turn_order: {e} ({type(e)})")
+            continue
+        new_order.append(seat)
+    turn_order = new_order
 # ======================
 # دستورات اصلی
 # ======================
@@ -1101,30 +1129,49 @@ async def challenge_choice(callback: types.CallbackQuery):
 # ======================
 @dp.callback_query_handler(lambda c: c.data.startswith("challenge_request_"))
 async def challenge_request(callback: types.CallbackQuery):
-    challenger_id = callback.from_user.id
+    """
+    مثال: callback.data == "challenge_request_{target_seat}"
+    موقع اضافه کردن چالشگر، حتماً صندلی (seat id) را درج کن — نه user_id.
+    """
+    global current_turn_index, turn_order, players
+
+    challenger_user_id = callback.from_user.id
+    # صندلی چالش‌گر را پیدا کن
+    challenger_seat = None
+    for s, uid in players.items():
+        if uid == challenger_user_id:
+            challenger_seat = s
+            break
+    if challenger_seat is None:
+        await callback.answer("⚠️ شما در بازی نیستید.", show_alert=True)
+        return
+
+    # صندلی هدف از داده callback
     try:
         target_seat = int(callback.data.split("_", 2)[2])
-    except (IndexError, ValueError):
-        await callback.answer("⚠️ خطا در داده چالش.", show_alert=True)
+    except Exception:
+        await callback.answer("⚠️ داده چالش نامعتبر است.", show_alert=True)
         return
 
-    target_id = player_slots.get(target_seat)
-    if not target_id:
-        await callback.answer("⚠️ این صندلی بازیکن ندارد.", show_alert=True)
-        return
-    if challenger_id == target_id:
-        await callback.answer("❌ نمی‌توانی خودت را چالش کنی.", show_alert=True)
+    if target_seat not in players:
+        await callback.answer("⚠️ صندلی هدف بازیکنی ندارد.", show_alert=True)
         return
 
-    kb = InlineKeyboardMarkup(row_width=1)
-    kb.add(
-        InlineKeyboardButton("⚔ چالش قبل", callback_data=f"challenge_before_{challenger_id}_{target_id}"),
-        InlineKeyboardButton("⚔ چالش بعد", callback_data=f"challenge_after_{challenger_id}_{target_id}"),
-        InlineKeyboardButton("🚫 انصراف", callback_data=f"challenge_none_{challenger_id}_{target_id}")
-    )
+    # مکان درج: بلافاصله بعد از current_turn_index
+    insert_pos = current_turn_index + 1
+    if insert_pos > len(turn_order):
+        insert_pos = len(turn_order)
 
-    await callback.message.reply("لطفاً نوع چالش را انتخاب کنید:", reply_markup=kb)
-    await callback.answer()
+    # مطمئن شو داریم صندلی درج می‌کنیم (نه user_id)
+    if challenger_seat in turn_order[insert_pos:insert_pos+3]:
+        # اگر از قبل نزدیک نوبت بود، دوباره اضافه نکن
+        await callback.answer("✅ چالش ثبت شد (قبلاً در نوبت بودید).")
+        return
+
+    turn_order.insert(insert_pos, challenger_seat)
+    sanitize_turn_order()
+    logging.info(f"[challenge] چالشگر صندلی {challenger_seat} بعد از ایندکس {current_turn_index} اضافه شد.")
+    await callback.answer("✅ چالش ثبت شد.")
 
 # ======================
 # انتخاب نوع چالش (قبل / بعد / انصراف)
@@ -1174,6 +1221,16 @@ async def challenge_choice(callback: types.CallbackQuery):
 
     await callback.answer()
 
+#=================
+# دیباگ
+#=================
+logging.info(f"TURN_ORDER={turn_order} | INDEX={current_turn_index} | PLAYERS={players}")
+
+@dp.message_handler(commands=['debug_turns'])
+async def debug_turns(msg: types.Message):
+    if msg.from_user.id != moderator_id: 
+        return
+    await msg.reply(f"turn_order={turn_order}\ncurrent_turn_index={current_turn_index}\nplayers={players}")
 
 
 #===============
@@ -1188,30 +1245,36 @@ async def challenge_choice(callback: types.CallbackQuery):
 async def next_turn(callback: types.CallbackQuery):
     global current_turn_index, turn_order, players
 
-    # عبور از صندلی‌های خالی
-    while current_turn_index < len(turn_order) and turn_order[current_turn_index] not in players:
-        current_turn_index += 1
+    # نرمال‌سازی قبل از هر کاری
+    sanitize_turn_order()
 
+    # اگر ایندکس خارج از بازه است، به انتهای لیست برس
     if current_turn_index >= len(turn_order):
-        await callback.answer("🎲 تمام نوبت‌ها به پایان رسید!")
+        current_turn_index = 0  # یا len(turn_order) — بسته به منطق شما
+    # پیداکردن اولین نوبت معتبر از current_turn_index به بعد
+    while current_turn_index < len(turn_order):
+        seat = turn_order[current_turn_index]
+        player_id = players.get(seat)
+        if not player_id:
+            logging.warning(f"[next_turn] صندلی {seat} خالی است، حذف از نوبت.")
+            turn_order.pop(current_turn_index)
+            continue  # بدون افزایش ایندکس، چون عنصر حذف شد
+        # نوبت معتبر یافت شد — نمایش
+        mention = f"<a href='tg://user?id={player_id}'>بازیکن</a>"
+        try:
+            await callback.message.edit_text(
+                f"✅ نوبت: {mention}\n(صندلی {seat})",
+                parse_mode="HTML"
+            )
+        except Exception:
+            logging.exception("[next_turn] خطا در ویرایش پیام نوبت")
+            # اگر لازم است show_alert بدهید:
+            await callback.answer("خطا در نمایش نوبت.", show_alert=True)
+        current_turn_index += 1
         return
 
-    current_seat = turn_order[current_turn_index]
-    current_player_id = players.get(current_seat)
-
-    if not current_player_id:
-        await callback.answer(f"⚠️ صندلی {current_seat} بازیکنی ندارد.", show_alert=True)
-        # صندلی خالی را از لیست نوبت حذف می‌کنیم
-        turn_order.pop(current_turn_index)
-        # دوباره هندلر را صدا می‌کنیم
-        await next_turn(callback)
-        return
-
-    # ارسال پیام نوبت بازیکن
-    await callback.message.edit_text(f"✅ نوبت بازیکن: {current_player_id} (صندلی {current_seat})")
-
-    # آماده شدن برای نوبت بعدی
-    current_turn_index += 1
+    # اگر هیچ نوبتی نمانده
+    await callback.answer("🎲 تمام نوبت‌ها به پایان رسید.")
 
 #===============
 # انتخاب چالش
