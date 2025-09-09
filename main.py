@@ -1177,8 +1177,41 @@ async def challenge_choice(callback: types.CallbackQuery):
 
 
 #===============
-# نوع چالش
+# ترن بعدی
 #===============
+# فرض می‌کنیم:
+# players = {seat_id: user_id, ...}   # صندلی‌ها و بازیکنان فعلی
+# turn_order = [seat_id1, seat_id2, ...]  # لیست نوبت‌ها
+# current_turn_index = 0                # ایندکس نوبت فعلی
+
+@dp.callback_query_handler(lambda c: c.data == "next_turn")
+async def next_turn(callback: types.CallbackQuery):
+    global current_turn_index, turn_order, players
+
+    # عبور از صندلی‌های خالی
+    while current_turn_index < len(turn_order) and turn_order[current_turn_index] not in players:
+        current_turn_index += 1
+
+    if current_turn_index >= len(turn_order):
+        await callback.answer("🎲 تمام نوبت‌ها به پایان رسید!")
+        return
+
+    current_seat = turn_order[current_turn_index]
+    current_player_id = players.get(current_seat)
+
+    if not current_player_id:
+        await callback.answer(f"⚠️ صندلی {current_seat} بازیکنی ندارد.", show_alert=True)
+        # صندلی خالی را از لیست نوبت حذف می‌کنیم
+        turn_order.pop(current_turn_index)
+        # دوباره هندلر را صدا می‌کنیم
+        await next_turn(callback)
+        return
+
+    # ارسال پیام نوبت بازیکن
+    await callback.message.edit_text(f"✅ نوبت بازیکن: {current_player_id} (صندلی {current_seat})")
+
+    # آماده شدن برای نوبت بعدی
+    current_turn_index += 1
 
 #===============
 # انتخاب چالش
