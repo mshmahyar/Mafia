@@ -140,23 +140,15 @@ async def handle_slot(callback: types.CallbackQuery):
     player_slots[seat_number] = user.id
     await callback.answer(f"✅ صندلی {seat_number} برای شما رزرو شد.")        
     await update_lobby()
-
-
+    
 def turn_keyboard(seat, is_challenge=False):
-    """
-    ساخت کیبورد برای نوبت بازیکن
-    - seat: شماره صندلی بازیکن
-    - is_challenge: اگر True باشه یعنی در حالت چالش هستیم و دکمه‌ی چالش غیرفعاله
-    """
     kb = InlineKeyboardMarkup(row_width=2)
     kb.add(InlineKeyboardButton("⏭ نکست", callback_data=f"next_{seat}"))
-
     if not is_challenge:
-        kb.add(InlineKeyboardButton("⚔ درخواست چالش", callback_data=f"challenge_request_{seat}"))
-
+        player_id = player_slots.get(seat)
+        if player_id:
+            kb.add(InlineKeyboardButton("⚔ درخواست چالش", callback_data=f"challenge_request_{seat}"))
     return kb
-
-
 
 # ======================
 # دستورات اصلی
@@ -1071,38 +1063,25 @@ async def challenge_request(callback: types.CallbackQuery):
         await callback.answer("⚠️ خطا در داده چالش.", show_alert=True)
         return
 
-    target_user = player_slots.get(target_seat)
-    if not target_user:
+    target_id = player_slots.get(target_seat)
+    if not target_id:
         await callback.answer("⚠️ این صندلی بازیکن ندارد.", show_alert=True)
         return
-
-    if challenger_id == target_user:
-        await callback.answer("❌نمی‌تونی از خودت چالش بگیری.", show_alert=True)
+    if challenger_id == target_id:
+        await callback.answer("❌ نمی‌تونی به خودت چالش بدی.", show_alert=True)
         return
 
-    # منشن‌ها
-    target_name = players.get(target_user, "بازیکن")
-    challenger_name = players.get(challenger_id, "بازیکن")
-    target_mention = f"<a href='tg://user?id={target_user}'>{html.escape(target_name)}</a>"
-    challenger_mention = f"<a href='tg://user?id={challenger_id}'>{html.escape(challenger_name)}</a>"
-
-    # کیبورد برای انتخاب گرداننده
-    kb = InlineKeyboardMarkup(row_width=3)
+    # ساخت دکمه‌ها برای انتخاب نوع چالش
+    kb = InlineKeyboardMarkup(row_width=1)
     kb.add(
-        InlineKeyboardButton("⏮ قبل", callback_data=f"challenge_before_{challenger_id}_{target_user}"),
-        InlineKeyboardButton("⏭ بعد", callback_data=f"challenge_after_{challenger_id}_{target_user}"),
-        InlineKeyboardButton("🚫 انصراف", callback_data=f"challenge_none_{challenger_id}_{target_user}")
+        InlineKeyboardButton("⚔ چالش قبل", callback_data=f"challenge_before_{challenger_id}_{target_id}"),
+        InlineKeyboardButton("⚔ چالش بعد", callback_data=f"challenge_after_{challenger_id}_{target_id}"),
+        InlineKeyboardButton("🚫 نمیدم چشت درآد", callback_data=f"challenge_none_{challenger_id}_{target_id}")
     )
 
-    await bot.send_message(
-        group_chat_id,
-        f"⚔ {challenger_mention} درخواست چالش از {target_mention} دارد.\n"
-        f"🎩 بازیکن انتخاب کند:",
-        parse_mode="HTML",
-        reply_markup=kb
-    )
+    await callback.message.reply("لطفاً نوع چالشو انتخاب کن:", reply_markup=kb)
+    await callback.answer()
 
-    await callback.answer("✅ درخواست چالش ثبت شد.", show_alert=True)
 
 #===============
 # نوع چالش
@@ -1139,73 +1118,51 @@ async def challenge_choice(callback: types.CallbackQuery):
 #===============
 # انتخاب چالش
 #===============
-
 @dp.callback_query_handler(lambda c: c.data.startswith("challenge_"))
 async def challenge_choice(callback: types.CallbackQuery):
     global paused_main_player, paused_main_duration
 
     parts = callback.data.split("_")
-    # parts = ["challenge", "before"/"after"/"none", challenger_id, target_id]
-    action = parts[1]
+    # مثال: challenge_before_12345_67890
+    action = parts[1]     # before / after / none
     challenger_id = int(parts[2])
     target_id = int(parts[3])
 
     challenger_name = players.get(challenger_id, "بازیکن")
     target_name = players.get(target_id, "بازیکن")
 
+    # فقط خود چالش‌کننده یا گرداننده اجازه دارند
+    if callback.from_user.id not in [challenger_id, moderator_id]:
+        await callback.answer("❌ فقط چالش‌دهنده یا گرداننده می‌تواند این گزینه را انتخاب کند.", show_alert=True)
+        return
+
     if action == "before":
-        # اگر الان یک نوبت اصلی در حال اجراست، آن را pause می‌کنیم و چالش‌کننده یک دقیقه صحبت می‌کند
-        # ذخیره‌ی نوبت اصلی برای resume بعد از چالش
         paused_main_player = target_id
         paused_main_duration = DEFAULT_TURN_DURATION
 
-        # لغو تایمر فعلی (تا نوبت اصلی متوقف شود)
         if turn_timer_task and not turn_timer_task.done():
             turn_timer_task.cancel()
 
-        # پیدا کردن seat چالش‌کننده
         challenger_seat = next((s for s,u in player_slots.items() if u == challenger_id), None)
         if challenger_seat is None:
-            await bot.send_message(group_chat_id, "⚠️ چالش‌کننده نوبت ندارد؛ نمی‌توان چالش را اجرا کرد.")
+            await bot.send_message(group_chat_id, "⚠️ چالش‌کننده صندلی ندارد؛ نمی‌توان چالش را اجرا کرد.")
         else:
+            await bot.send_message(group_chat_id, f"⚔ چالش قبل صحبت برای {challenger_name} از {target_name} اجرا شد.")
             await start_turn(challenger_seat, duration=60, is_challenge=True)
 
-        
-
     elif action == "after":
-        # ثبت برای اجرا بعد از پایان نوبت اصلی
-        pending_challenges[target_id] = challenger_id
-        await bot.send_message(group_chat_id, f"⚔ چالش بعد صحبت برای <b>{target_name}</b> ثبت شد (چالش‌کننده: {challenger_name}).", parse_mode="HTML")
-
-    elif action == "none":
-        await bot.send_message(group_chat_id, f"🚫 {challenger_name} از گرفتن چالش منصرف شد.", parse_mode="HTML")
-
-        await callback.answer()
-        if challenger_seat is None:
-            await bot.send_message(group_chat_id, "⚠️ چالش‌کننده صندلی ندارد؛ چالش لغو شد.")
-            await callback.answer()
-            return
-
-        challenge_mode = True
-        post_challenge_advance = False
-        await bot.send_message(group_chat_id, f"⚔ چالش قبل صحبت برای {html.escape(target_name)} توسط {html.escape(challenger_name)} شروع شد.")
-        await start_turn(challenger_seat, duration=60, is_challenge=True)
-
-    elif action == "after":
-        # ثبت چالش برای اجرا بلافاصله بعد از پایان نوبت هدف
+        target_seat = next((s for s,u in player_slots.items() if u == target_id), None)
         if target_seat is None:
             await bot.send_message(group_chat_id, "⚠️ هدف چالش صندلی ندارد؛ نمی‌توان چالش را ثبت کرد.")
-            await callback.answer()
-            return
-
-        # pending_challenges کلید: seat هدف، مقدار: challenger_id (user id)
-        pending_challenges[target_seat] = challenger_id
-        await bot.send_message(group_chat_id, f"⚔ چالش بعد صحبت برای {html.escape(target_name)} ثبت شد (چالش‌کننده: {html.escape(challenger_name)}).")
+        else:
+            pending_challenges[target_seat] = challenger_id
+            await bot.send_message(group_chat_id, f"⚔ چالش بعد صحبت برای {target_name} ثبت شد (: {challenger_name}).")
 
     elif action == "none":
-        await bot.send_message(group_chat_id, f"🚫 {html.escape(challenger_name)} از چالش برای {html.escape(target_name)} منصرف شد.")
+        await bot.send_message(group_chat_id, f"🚫 {challenger_name}   چالش نداد.")
 
     await callback.answer()
+
 
 # ======================
 # استارتاپ
