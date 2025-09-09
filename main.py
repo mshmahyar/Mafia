@@ -692,6 +692,29 @@ async def render_game_message(edit=True):
 async def start_play(callback: types.CallbackQuery):
     global game_running, lobby_active, turn_order, current_turn_index, game_message_id
 
+    # ترتیب نوبت‌ها بر اساس صندلی‌های پر
+    turn_order = list(player_slots.keys())   # 🔹 حالا همه int هستند
+    current_turn_index = 0 
+
+    if not turn_order:
+    await callback.answer("❌ هیچ بازیکنی روی صندلی ننشسته.", show_alert=True)
+    return
+
+    if not first_player_id:
+        await callback.answer(f"⚠️ صندلی {first_seat} بازیکنی ندارد.", show_alert=True)
+        return
+        
+    mention = f"<a href='tg://user?id={first_player_id}'>بازیکن</a>"
+    await callback.message.edit_text(
+        f"🎮 شروع بازی!\nاولین نوبت: {mention} (صندلی {first_seat})",
+        parse_mode="HTML",
+        reply_markup=turn_keyboard(first_seat)
+    )
+    
+    first_seat = turn_order[current_turn_index]
+    first_player_id = player_slots.get(first_seat)
+    
+
     # فقط گرداننده می‌تواند شروع کند
     if callback.from_user.id != moderator_id:
         await callback.answer("❌ فقط گرداننده می‌تواند بازی را شروع کند.", show_alert=True)
