@@ -1411,9 +1411,5 @@ async def send_temp_message(chat_id, text, delay=5, **kwargs):
 # ======================
 # استارتاپ
 # ======================
-async def on_startup(dp):
-    await bot.delete_webhook(drop_pending_updates=True)
-    logging.info("Webhook deleted and ready for polling.")
-
 if __name__ == "__main__":
     executor.start_polling(dp, skip_updates=True, on_startup=on_startup)
