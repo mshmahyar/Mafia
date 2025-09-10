@@ -6,6 +6,7 @@ import logging
 from aiogram import Bot, Dispatcher, types
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.utils import executor
+from aiogram.contrib.fsm_storage.memory import MemoryStorage
 import html
 
 # ======================
@@ -17,7 +18,7 @@ if not API_TOKEN:
 
 logging.basicConfig(level=logging.INFO)
 bot = Bot(token=API_TOKEN, parse_mode="HTML")
-dp = Dispatcher(bot)
+dp = Dispatcher(bot) ,storage=MemoryStorage())
 
 # ======================
 # متغیرهای سراسری
