@@ -1099,6 +1099,8 @@ async def challenge_choice(callback: types.CallbackQuery):
 # ======================
 # درخواست چالش (باز کردن منوی انتخاب قبل/بعد/انصراف)
 # ======================
+challenge_requests = {}
+
 @dp.callback_query_handler(lambda c: c.data.startswith("challenge_request_"))
 async def challenge_request(callback: types.CallbackQuery):
     challenger_id = callback.from_user.id
@@ -1116,15 +1118,30 @@ async def challenge_request(callback: types.CallbackQuery):
         await callback.answer("❌ نمی‌توانی خودت را چالش کنی.", show_alert=True)
         return
 
+    # محدودیت: هر بازیکن فقط یکبار می‌تواند چالش بدهد
+    if any(challenger_id in reqs for reqs in challenge_requests.values()):
+        await callback.answer("❌ فقط یکبار می‌توانی چالش بدهی.", show_alert=True)
+        return
+
+    # ثبت درخواست
+    challenge_requests.setdefault(target_seat, {})[challenger_id] = "pending"
+    challenger_name = players.get(challenger_id, "بازیکن")
+
+    # اطلاع به بازیکن جاری
     kb = InlineKeyboardMarkup(row_width=1)
     kb.add(
-        InlineKeyboardButton("⚔ چالش قبل", callback_data=f"challenge_before_{challenger_id}_{target_id}"),
-        InlineKeyboardButton("⚔ چالش بعد", callback_data=f"challenge_after_{challenger_id}_{target_id}"),
-        InlineKeyboardButton("🚫 انصراف", callback_data=f"challenge_none_{challenger_id}_{target_id}")
+        InlineKeyboardButton("⚔ قبول قبل", callback_data=f"accept_before_{challenger_id}_{target_id}"),
+        InlineKeyboardButton("⚔ قبول بعد", callback_data=f"accept_after_{challenger_id}_{target_id}"),
+        InlineKeyboardButton("🚫 رد", callback_data=f"reject_{challenger_id}_{target_id}")
     )
 
-    await callback.message.reply("لطفاً نوع چالش را انتخاب کنید:", reply_markup=kb)
-    await callback.answer()
+    await bot.send_message(
+        target_id,
+        f"📢 {challenger_name} از شما درخواست چالش کرده.\nقبول می‌کنید؟",
+        reply_markup=kb
+    )
+
+    await callback.answer("✅ درخواست چالش ثبت شد.")
 
 # ======================
 # انتخاب نوع چالش (قبل / بعد / انصراف)
@@ -1177,8 +1194,59 @@ async def challenge_choice(callback: types.CallbackQuery):
 
 
 #===============
-# نوع چالش
+# قبول/رد چالش
 #===============
+@dp.callback_query_handler(lambda c: c.data.startswith(("accept_before_", "accept_after_", "reject_")))
+async def handle_challenge_response(callback: types.CallbackQuery):
+    global paused_main_player, paused_main_duration, challenge_mode, post_challenge_advance
+
+    parts = callback.data.split("_")
+    action = parts[0]      # accept / reject
+    timing = parts[1] if action == "accept" else None  # before / after
+    challenger_id = int(parts[2])
+    target_id = int(parts[3])
+
+    target_seat = next((s for s, u in player_slots.items() if u == target_id), None)
+    challenger_seat = next((s for s, u in player_slots.items() if u == challenger_id), None)
+
+    if not target_seat or not challenger_seat:
+        await callback.answer("⚠️ صندلی نامعتبر.", show_alert=True)
+        return
+
+    # فقط خود target (بازیکن جاری) یا گرداننده حق انتخاب دارد
+    if callback.from_user.id not in [target_id, moderator_id]:
+        await callback.answer("❌ فقط صاحب نوبت یا گرداننده می‌تواند تصمیم بگیرد.", show_alert=True)
+        return
+
+    challenger_name = players.get(challenger_id, "بازیکن")
+    target_name = players.get(target_id, "بازیکن")
+
+    # رد کردن
+    if action == "reject":
+        challenge_requests[target_seat][challenger_id] = "rejected"
+        await bot.send_message(group_chat_id, f"🚫 {target_name} درخواست چالش {challenger_name} را رد کرد.")
+        await callback.answer()
+        return
+
+    # پذیرش → بقیه درخواست‌ها باطل شوند
+    for cid in list(challenge_requests.get(target_seat, {})):
+        if cid != challenger_id:
+            challenge_requests[target_seat][cid] = "rejected"
+    challenge_requests[target_seat][challenger_id] = "accepted"
+
+    # اجرای چالش
+    if timing == "before":
+        paused_main_player = target_seat
+        paused_main_duration = DEFAULT_TURN_DURATION
+        challenge_mode = True
+        await bot.send_message(group_chat_id, f"⚔ {target_name} درخواست چالش {challenger_name} را قبول کرد (قبل از صحبت).")
+        await start_turn(challenger_seat, duration=60, is_challenge=True)
+
+    elif timing == "after":
+        pending_challenges[target_seat] = challenger_id
+        await bot.send_message(group_chat_id, f"⚔ {target_name} درخواست چالش {challenger_name} را قبول کرد (بعد از صحبت).")
+
+    await callback.answer()
 
 #===============
 # انتخاب چالش
