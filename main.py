@@ -926,70 +926,75 @@ async def head_set(callback: types.CallbackQuery):
 # ======================
 async def start_turn(seat, duration=DEFAULT_TURN_DURATION, is_challenge=False):
     """
-    شروع نوبت برای یک seat (صندلی). این تابع:
-    - پیام نوبت را در گروه می‌فرستد و پین می‌کند
-    - کیبورد مناسب را می‌سازد
-    - تایمر زنده را با countdown ایجاد می‌کند
+    شروع نوبت برای یک seat (صندلی).
+    - پیام نوبت را در گروه می‌فرستد (با کیبورد مناسب)
+    - پیام قبلی را غیرفعال می‌کند و در صورت امکان آن‌پین می‌کند
+    - تایمر قبلی را کنسل می‌کند و یک تسک countdown جدید می‌سازد
     """
-    global current_turn_message_id, turn_timer_task, challenge_mode
-        user_id = player_slots.get(seat)
-    if not user_id:
-        return
+    global current_turn_message_id, last_turn_msg_id, turn_timer_task, challenge_mode, paused_main_player, paused_main_duration
 
+    # بررسی مقدماتی
     if not group_chat_id:
         return
 
-    # seat باید در player_slots باشد
-    if seat not in player_slots:
-        await bot.send_message(group_chat_id, f"⚠️ صندلی {seat} بازیکنی ندارد.")
+    user_id = player_slots.get(seat)
+    if not user_id:
+        # اگر صندلی خالی است، پیام موقتی اطلاع‌رسانی بفرست
+        try:
+            await send_temp_message(group_chat_id, f"⚠️ صندلی {seat} بازیکنی ندارد.", delay=5)
+        except:
+            pass
         return
-        
-        # غیرفعال کردن پیام قبلی
+
+    # غیرفعال کردن کیبورد پیام نوبت قبلی (اگه وجود داشته باشه)
     if last_turn_msg_id:
-        await disable_keyboard(last_turn_msg_id)
+        try:
+            await disable_keyboard(last_turn_msg_id)
+        except:
+            pass
 
-    mention = f"<a href='tg://user?id={user_id}'>{players.get(user_id, 'بازیکن')}</a>"
-    msg = await bot.send_message(
-        group_chat_id,
-        f"🎙 نوبت صحبت {mention} (صندلی {seat})",
-        parse_mode="HTML",
-        reply_markup=turn_keyboard(seat, is_challenge)
-    )
-    last_turn_msg_id = msg.message_id
-
-    asyncio.create_task(countdown(seat, duration, msg.message_id, is_challenge))
-
-    user_id = player_slots[seat]
-    player_name = players.get(user_id, "بازیکن")
-    mention = f"<a href='tg://user?id={user_id}'>{html.escape(str(player_name))}</a>"
-
-    # حالت چالش را تنظیم کن
-    challenge_mode = bool(is_challenge)
-
-    # unpin پیام قبلی اگر لازم
+    # آن‌پین کردن پیام نوبت قبلی (اگه پین شده بود)
     if current_turn_message_id:
         try:
             await bot.unpin_chat_message(group_chat_id, current_turn_message_id)
         except:
             pass
 
-    text = f"⏳ {duration//60:02d}:{duration%60:02d}\n🎙 نوبت صحبت {mention} است. ({duration} ثانیه)"
-    msg = await bot.send_message(group_chat_id, text, parse_mode="HTML", reply_markup=turn_keyboard(seat, is_challenge))
+    # کنسل کردن تایمر قبلی (اگه در حال اجراست)
+    try:
+        if 'turn_timer_task' in globals() and turn_timer_task and not turn_timer_task.done():
+            turn_timer_task.cancel()
+    except:
+        pass
 
-    # تلاش برای پین کردن پیام جدید (اختیاری)
+    # حالت چالش یا عادی
+    challenge_mode = bool(is_challenge)
+
+    # ساخت متن و ارسال پیام نوبت
+    player_name = players.get(user_id, "بازیکن")
+    mention = f"<a href='tg://user?id={user_id}'>{html.escape(str(player_name))}</a>"
+    text = f"⏳ {duration//60:02d}:{duration%60:02d}\n🎙 نوبت صحبت {mention} است. ({duration} ثانیه)"
+
+    msg = await bot.send_message(
+        group_chat_id,
+        text,
+        parse_mode="HTML",
+        reply_markup=turn_keyboard(seat, is_challenge)
+    )
+
+    # تلاش برای پین کردن پیام (اختیاری)
     try:
         await bot.pin_chat_message(group_chat_id, msg.message_id, disable_notification=True)
     except:
         pass
 
+    # ذخیره آیدی پیام این نوبت تا بعدا غیرفعالش کنیم
     current_turn_message_id = msg.message_id
+    last_turn_msg_id = msg.message_id
 
-    # لغو تایمر قبلی
-    if turn_timer_task and not turn_timer_task.done():
-        turn_timer_task.cancel()
-
-    # راه‌اندازی تایمر (task)
+    # ساخت و ذخیرهٔ تسک تایمر
     turn_timer_task = asyncio.create_task(countdown(seat, duration, msg.message_id, is_challenge))
+
     
 #=============================
 # تایمر زندهٔ نوبت (ویرایش پیام هر N ثانیه)
