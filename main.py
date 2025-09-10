@@ -71,6 +71,7 @@ def save_scenarios():
 
 scenarios = load_scenarios()
 
+
 # ======================
 # کیبوردها
 # ======================
@@ -102,6 +103,15 @@ def join_menu():
 #===========================
 #  توابع کمکی
 #===========================
+async def on_startup(dispatcher):
+    # اگر webhook ندارید، این خط را حذف کنید
+    # یا با try مدیریت کنید تا خطا ندهد
+    try:
+        await bot.delete_webhook(drop_pending_updates=True)
+        print("Webhook حذف شد (در صورت وجود).")
+    except Exception as e:
+        print(f"Webhook حذف نشد: {e}")
+
 # غیرفعال کردن کیبورد قبلی 
 async def disable_keyboard(message_id):
     try:
