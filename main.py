@@ -946,10 +946,9 @@ async def start_turn(seat, duration=DEFAULT_TURN_DURATION, is_challenge=False):
     # راه‌اندازی تایمر (task)
     turn_timer_task = asyncio.create_task(countdown(seat, duration, msg.message_id, is_challenge))
     
-    #=============================
-    # تایمر زندهٔ نوبت (ویرایش پیام هر N ثانیه)
-    #=============================
-
+#=============================
+# تایمر زندهٔ نوبت (ویرایش پیام هر N ثانیه)
+#=============================
 async def countdown(seat, duration, message_id, is_challenge=False):
     remaining = duration
     user_id = player_slots.get(seat)
@@ -958,7 +957,7 @@ async def countdown(seat, duration, message_id, is_challenge=False):
 
     try:
         while remaining > 0:
-            await asyncio.sleep(5)   # هر 5 ثانیه بروزرسانی کن
+            await asyncio.sleep(5)
             remaining -= 5
             new_text = f"⏳ {max(0, remaining)//60:02d}:{max(0, remaining)%60:02d}\n🎙 نوبت صحبت {mention} است. ({max(0, remaining)} ثانیه)"
             try:
@@ -966,14 +965,11 @@ async def countdown(seat, duration, message_id, is_challenge=False):
                                             parse_mode="HTML", reply_markup=turn_keyboard(seat, is_challenge))
             except:
                 pass
-        # زمان به پایان رسید -> اطلاع بده (می‌تونی اینجا خودکار next بزنی یا منتظر دکمه بمانی)
-        try:
-            await bot.send_message(group_chat_id, f"⏳ زمان {mention} به پایان رسید.")
-        except:
-            pass
+        # پایان زمان → پیام موقتی
+        await send_temp_message(group_chat_id, f"⏳ زمان {mention} به پایان رسید.", delay=5)
     except asyncio.CancelledError:
-        # اگر از بیرون کنسل شد بی‌صدا بازمی‌گردیم
         return
+
 
 # ======================
 # نکست نوبت
@@ -1099,7 +1095,7 @@ async def challenge_choice(callback: types.CallbackQuery):
 # ======================
 # درخواست چالش (باز کردن منوی انتخاب قبل/بعد/انصراف)
 # ======================
-challenge_requests = {}
+challenge_requests = {}  # {target_seat: {challenger_uid: "pending"/"accepted"/"rejected"}}
 
 @dp.callback_query_handler(lambda c: c.data.startswith("challenge_request_"))
 async def challenge_request(callback: types.CallbackQuery):
@@ -1123,11 +1119,9 @@ async def challenge_request(callback: types.CallbackQuery):
         await callback.answer("❌ فقط یکبار می‌توانی چالش بدهی.", show_alert=True)
         return
 
-    # ثبت درخواست
     challenge_requests.setdefault(target_seat, {})[challenger_id] = "pending"
     challenger_name = players.get(challenger_id, "بازیکن")
 
-    # اطلاع به بازیکن جاری
     kb = InlineKeyboardMarkup(row_width=1)
     kb.add(
         InlineKeyboardButton("⚔ قبول قبل", callback_data=f"accept_before_{challenger_id}_{target_id}"),
@@ -1142,6 +1136,7 @@ async def challenge_request(callback: types.CallbackQuery):
     )
 
     await callback.answer("✅ درخواست چالش ثبت شد.")
+
 
 # ======================
 # انتخاب نوع چالش (قبل / بعد / انصراف)
@@ -1213,7 +1208,6 @@ async def handle_challenge_response(callback: types.CallbackQuery):
         await callback.answer("⚠️ صندلی نامعتبر.", show_alert=True)
         return
 
-    # فقط خود target (بازیکن جاری) یا گرداننده حق انتخاب دارد
     if callback.from_user.id not in [target_id, moderator_id]:
         await callback.answer("❌ فقط صاحب نوبت یا گرداننده می‌تواند تصمیم بگیرد.", show_alert=True)
         return
@@ -1221,36 +1215,45 @@ async def handle_challenge_response(callback: types.CallbackQuery):
     challenger_name = players.get(challenger_id, "بازیکن")
     target_name = players.get(target_id, "بازیکن")
 
-    # رد کردن
     if action == "reject":
         challenge_requests[target_seat][challenger_id] = "rejected"
-        await bot.send_message(group_chat_id, f"🚫 {target_name} درخواست چالش {challenger_name} را رد کرد.")
+        await send_temp_message(group_chat_id, f"🚫 {target_name} درخواست چالش {challenger_name} را رد کرد.", delay=5)
         await callback.answer()
         return
-
-    # پذیرش → بقیه درخواست‌ها باطل شوند
+    #========================
+    # پذیرش → بقیه درخواست‌ها رد شوند
+    #========================
     for cid in list(challenge_requests.get(target_seat, {})):
         if cid != challenger_id:
             challenge_requests[target_seat][cid] = "rejected"
     challenge_requests[target_seat][challenger_id] = "accepted"
 
-    # اجرای چالش
     if timing == "before":
         paused_main_player = target_seat
         paused_main_duration = DEFAULT_TURN_DURATION
         challenge_mode = True
-        await bot.send_message(group_chat_id, f"⚔ {target_name} درخواست چالش {challenger_name} را قبول کرد (قبل از صحبت).")
+        await send_temp_message(group_chat_id, f"⚔ {target_name} درخواست چالش {challenger_name} را قبول کرد (قبل از صحبت).", delay=8)
         await start_turn(challenger_seat, duration=60, is_challenge=True)
 
     elif timing == "after":
         pending_challenges[target_seat] = challenger_id
-        await bot.send_message(group_chat_id, f"⚔ {target_name} درخواست چالش {challenger_name} را قبول کرد (بعد از صحبت).")
+        await send_temp_message(group_chat_id, f"⚔ {target_name} درخواست چالش {challenger_name} را قبول کرد (بعد از صحبت).", delay=8)
 
     await callback.answer()
 
 #===============
-# انتخاب چالش
+# تایع کمکی کلین بورد
 #===============
+async def send_temp_message(chat_id, text, delay=5, **kwargs):
+    """
+    ارسال پیام موقتی که بعد از delay ثانیه پاک می‌شود.
+    """
+    try:
+        msg = await bot.send_message(chat_id, text, **kwargs)
+        await asyncio.sleep(delay)
+        await bot.delete_message(chat_id, msg.message_id)
+    except:
+        pass
 
 # ======================
 # استارتاپ
