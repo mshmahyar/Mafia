@@ -147,6 +147,8 @@ def turn_keyboard(seat, is_challenge=False):
     if not is_challenge:
         player_id = player_slots.get(seat)
         if player_id:
+            already_challenged = any(player_id in reqs for reqs in challenge_requests.values())
+            if not already_challenged:            
             kb.add(InlineKeyboardButton("⚔ درخواست چالش", callback_data=f"challenge_request_{seat}"))
     return kb
 
@@ -1121,7 +1123,8 @@ async def challenge_request(callback: types.CallbackQuery):
 
     challenge_requests.setdefault(target_seat, {})[challenger_id] = "pending"
     challenger_name = players.get(challenger_id, "بازیکن")
-
+    target_name = players.get(target_id, "بازیکن")
+    
     kb = InlineKeyboardMarkup(row_width=1)
     kb.add(
         InlineKeyboardButton("⚔ قبول قبل", callback_data=f"accept_before_{challenger_id}_{target_id}"),
@@ -1201,25 +1204,67 @@ async def handle_challenge_response(callback: types.CallbackQuery):
     challenger_id = int(parts[2])
     target_id = int(parts[3])
 
+    if action == "reject":
+        challenger_id = int(parts[1])
+        target_id = int(parts[2])
+    elif action == "accept":
+        timing = parts[1] # before یا after
+        challenger_id = int(parts[2])
+        target_id = int(parts[3])
+    else:
+        await callback.answer("⚠️ داده نامعتبر.", show_alert=True)
+        return
+
+
     target_seat = next((s for s, u in player_slots.items() if u == target_id), None)
     challenger_seat = next((s for s, u in player_slots.items() if u == challenger_id), None)
+
 
     if not target_seat or not challenger_seat:
         await callback.answer("⚠️ صندلی نامعتبر.", show_alert=True)
         return
 
+
     if callback.from_user.id not in [target_id, moderator_id]:
         await callback.answer("❌ فقط صاحب نوبت یا گرداننده می‌تواند تصمیم بگیرد.", show_alert=True)
         return
 
+
     challenger_name = players.get(challenger_id, "بازیکن")
     target_name = players.get(target_id, "بازیکن")
+
 
     if action == "reject":
         challenge_requests[target_seat][challenger_id] = "rejected"
         await send_temp_message(group_chat_id, f"🚫 {target_name} درخواست چالش {challenger_name} را رد کرد.", delay=5)
         await callback.answer()
         return
+
+
+    # پذیرش → بقیه درخواست‌ها رد شوند
+    for cid in list(challenge_requests.get(target_seat, {})):
+        if cid != challenger_id:
+            challenge_requests[target_seat][cid] = "rejected"
+        challenge_requests[target_seat][challenger_id] = "accepted"
+
+
+    if timing == "before":
+        paused_main_player = target_seat
+        paused_main_duration = DEFAULT_TURN_DURATION
+        challenge_mode = True
+        await send_temp_message(group_chat_id, f"⚔ {target_name} درخواست چالش {challenger_name} را قبول کرد (قبل از صحبت).", delay=8)
+        await start_turn(challenger_seat, duration=60, is_challenge=True)
+
+
+    elif timing == "after":
+        pending_challenges[target_seat] = challenger_id
+        await send_temp_message(group_chat_id, f"⚔ {target_name} درخواست چالش {challenger_name} را قبول کرد (بعد از صحبت).", delay=8)
+
+
+    await callback.answer()
+
+    
+
     #========================
     # پذیرش → بقیه درخواست‌ها رد شوند
     #========================
