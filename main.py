@@ -174,7 +174,7 @@ def turn_keyboard(seat, is_challenge=False):
         if player_id:
             already_challenged = any(player_id in reqs for reqs in challenge_requests.values())
             if not already_challenged:            
-            kb.add(InlineKeyboardButton("⚔ درخواست چالش", callback_data=f"challenge_request_{seat}"))
+                kb.add(InlineKeyboardButton("⚔ درخواست چالش", callback_data=f"challenge_request_{seat}"))
     return kb
 
 # ======================
