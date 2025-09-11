@@ -48,6 +48,21 @@ challenges = {}  # {player_id: {"type": "before"/"after", "challenger": user_id}
 challenge_active = False
 post_challenge_advance = False   # وقتی اجرای چالش 'بعد' باشه، بعد از چالش به نوبت بعدی می‌رویم
 
+#=======================
+# داده های ریست در شروع روز
+#=======================
+def reset_round_data():
+    global current_turn_index, turn_order, challenge_requests, active_challenger_seats
+    global paused_main_player, paused_main_duration, post_challenge_advance, pending_challenges
+
+    current_turn_index = 0
+    turn_order = []
+    challenge_requests = {}
+    active_challenger_seats = set()
+    paused_main_player = None
+    paused_main_duration = None
+    post_challenge_advance = False
+    pending_challenges = {}
 
 # ======================
 # لود سناریوها
@@ -1041,6 +1056,8 @@ async def next_turn_callback(callback: types.CallbackQuery):
             # ایندکس رو ببریم روی Y (چالش‌کننده) برای اجرای نوبت اصلی بعداً
             current_turn_index += 1
             if current_turn_index >= len(turn_order):
+                kb = InlineKeyboardMarkup()
+                kb.add(InlineKeyboardButton("🌙 شروع فاز شب", callback_data="start_night"))    
                 await bot.send_message(group_chat_id, "✅ همه بازیکنان صحبت کردند. فاز روز پایان یافت.")
                 current_turn_index = 0
                 return
@@ -1052,6 +1069,45 @@ async def next_turn_callback(callback: types.CallbackQuery):
 
 
         return
+
+#========================
+# شب کردن
+#========================
+@dp.callback_query_handler(lambda c: c.data == "start_night")
+async def start_night(callback: types.CallbackQuery):
+    if callback.from_user.id != moderator_id:
+        await callback.answer("❌ فقط گرداننده می‌تواند فاز شب را شروع کند.", show_alert=True)
+        return
+
+    kb = InlineKeyboardMarkup()
+    kb.add(InlineKeyboardButton("🌞 شروع روز جدید", callback_data="start_new_day"))
+
+    await bot.send_message(group_chat_id, "🌙 فاز شب شروع شد. بازیکنان ساکت باشند...", reply_markup=kb)
+    await callback.answer()
+
+
+#===========================
+# روز کردن و ریست دور قبل
+#===========================
+@dp.callback_query_handler(lambda c: c.data == "start_new_day")
+async def start_new_day(callback: types.CallbackQuery):
+    if callback.from_user.id != moderator_id:
+        await callback.answer("❌ فقط گرداننده می‌تواند روز جدید را شروع کند.", show_alert=True)
+        return
+
+    # ریست تمام داده‌های دور قبلی
+    reset_round_data()
+
+    # کیبورد انتخاب سر صحبت
+    kb = InlineKeyboardMarkup(row_width=2)
+    kb.add(
+        InlineKeyboardButton("🎲 انتخاب سر صحبت خودکار", callback_data="speaker_auto"),
+        InlineKeyboardButton("🙋 انتخاب سر صحبت دستی", callback_data="speaker_manual")
+    )
+
+    await bot.send_message(group_chat_id, "🌞 روز جدید شروع شد! سر صحبت را انتخاب کنید:", reply_markup=kb)
+    await callback.answer()
+
 
     # ======================
     # حالت نوبت عادی
