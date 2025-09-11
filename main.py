@@ -1211,6 +1211,7 @@ async def handle_challenge_response(callback: types.CallbackQuery):
         paused_main_player = target_seat
         paused_main_duration = DEFAULT_TURN_DURATION
         challenge_mode = True
+        active_challenger_seats.add(target_seat)
 
         await bot.send_message(group_chat_id,
             f"⚔ {target_name} درخواست چالش {challenger_name} را قبول کرد (قبل از صحبت).")
@@ -1221,7 +1222,7 @@ async def handle_challenge_response(callback: types.CallbackQuery):
     elif timing == "after":
         # نوبت X (target) اول اجرا میشه، بعد Y
         pending_challenges[target_seat] = challenger_id
-
+        active_challenger_seats.add(target_seat)
         await bot.send_message(group_chat_id,
             f"⚔ {target_name} درخواست چالش {challenger_name} را قبول کرد (بعد از صحبت).")
 
