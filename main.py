@@ -39,6 +39,7 @@ turn_timer_task = None      # تسک تایمر نوبت
 player_slots = {}  # {slot_number: user_id}
 challenge_requests = {}  
 pending_challenges = {}
+active_challenger_seats = set()
 challenge_mode = False      # آیا الان در حالت نوبت چالش هستیم؟
 paused_main_player = None   # اگر چالش "قبل" ثبت شد، اینجا id نوبت اصلی ذخیره می‌شود تا بعد از چالش resume شود
 paused_main_duration = None # (اختیاری) مدت زمان نوبت اصلی برای resume — معمولا 120
@@ -159,6 +160,8 @@ def turn_keyboard(seat, is_challenge=False):
     if not is_challenge:
         player_id = player_slots.get(seat)
         if player_id:
+            if seat in active_challenger_seats:
+                return kb
             already_challenged = any(player_id in reqs for reqs in challenge_requests.values())
             if not already_challenged:
                 kb.add(InlineKeyboardButton("⚔ درخواست چالش", callback_data=f"challenge_request_{seat}"))
@@ -1208,11 +1211,15 @@ async def handle_challenge_response(callback: types.CallbackQuery):
         paused_main_player = target_seat
         paused_main_duration = DEFAULT_TURN_DURATION
         challenge_mode = True
+        active_challenger_seats.add(target_seat)
         await bot.send_message(group_chat_id, f"⚔ {target_name} درخواست چالش {challenger_name} را قبول کرد (قبل از صحبت).")
         await start_turn(challenger_seat, duration=60, is_challenge=True)
+        
 
     elif timing == "after":
         pending_challenges[target_seat] = challenger_id
+        active_challenger_seats.add(target_seat)
+        
         await bot.send_message(group_chat_id, f"⚔ {target_name} درخواست چالش {challenger_name} را قبول کرد (بعد از صحبت).")
 
     await callback.answer()
