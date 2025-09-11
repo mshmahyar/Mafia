@@ -1020,7 +1020,6 @@ async def next_turn(callback: types.CallbackQuery):
 
     try:
         seat = int(callback.data.split("_", 1)[1])
-        print(f"[DEBUG] Next requested for seat: {seat}")
     except Exception:
         await bot.send_message(group_chat_id, "⚠️ دادهٔ نادرست برای نکست.")
         return
@@ -1032,32 +1031,40 @@ async def next_turn(callback: types.CallbackQuery):
 
     if turn_timer_task and not turn_timer_task.done():
         turn_timer_task.cancel()
-        print("[DEBUG] Timer cancelled.")
 
-    # منطق نوبت
+    # --- منطق نوبت ---
     if challenge_mode:
         challenge_mode = False
         if paused_main_player is not None:
             await start_turn(paused_main_player, duration=paused_main_duration)
             paused_main_player = None
             paused_main_duration = None
-            print("[DEBUG] Returning to main player after challenge")
             return
     else:
+        # ✅ قبل از جلو رفتن → بررسی کن آیا چالش برای این بازیکن ثبت شده؟
+        if seat in pending_challenges:
+            challenger_id = pending_challenges.pop(seat)
+            challenger_seat = next((s for s, u in player_slots.items() if u == challenger_id), None)
+            if challenger_seat:
+                # ذخیره نوبت اصلی
+                paused_main_player = seat
+                paused_main_duration = 60  # یا هر مقداری که زمان باقی‌مانده است
+                challenge_mode = True
+                await start_turn(challenger_seat, duration=60, is_challenge=True)
+                return
+
+        # اگه چالش نبود → برو نفر بعدی
         current_turn_index += 1
 
-    # بررسی پایان روز
+    # --- پایان روز یا ادامه نوبت ---
     if current_turn_index >= len(turn_order):
         kb = InlineKeyboardMarkup()
         kb.add(InlineKeyboardButton("🌙 شروع فاز شب", callback_data="start_night"))
         await bot.send_message(group_chat_id, "✅ همه بازیکنان صحبت کردند. فاز روز پایان یافت.", reply_markup=kb)
-        print("[DEBUG] End of day reached")
-        return
+    else:
+        next_seat = turn_order[current_turn_index]
+        await start_turn(next_seat)
 
-    # شروع نوبت بعدی
-    next_seat = turn_order[current_turn_index]
-    await start_turn(next_seat)
-    print(f"[DEBUG] Starting next turn: seat {next_seat}")
 
 
     # ======================
