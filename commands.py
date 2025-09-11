@@ -68,6 +68,11 @@ COMMANDS = {
     "تگ همه": cmd_tag_all,
     "تگ ادمین": cmd_tag_admins,
     "تگ لیست": cmd_tag_players,
+
+    # انگلیسی
+    "tag all": cmd_tag_all,
+    "tag admins": cmd_tag_admins,
+    "tag list": cmd_tag_players,
 }
 
 
@@ -76,6 +81,8 @@ COMMANDS = {
 # ======================
 @dp.message_handler(lambda m: m.text and m.chat.type in ["group", "supergroup"])
 async def handle_text_commands(message: types.Message):
+    print("📩 متن دریافت شد:", message.text)  # دیباگ
     text = message.text.strip().lower()
     if text in COMMANDS:
         await COMMANDS[text](message)
+
