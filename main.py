@@ -1026,7 +1026,6 @@ async def next_turn_callback(callback: types.CallbackQuery):
         # اگر قرار بود بعد از چالش به نوبت بعدی بریم (post_challenge_advance) -> advance کن
         if post_challenge_advance:
             post_challenge_advance = False
-            current_turn_index += 1بله
             next_seat = turn_order[current_turn_index]
             await start_turn(next_seat, duration=DEFAULT_TURN_DURATION, is_challenge=False)
             return
