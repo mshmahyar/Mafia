@@ -7,6 +7,7 @@ from aiogram import Bot, Dispatcher, types
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.utils import executor
 import html
+import commands
 
 # ======================
 # تنظیمات ربات
