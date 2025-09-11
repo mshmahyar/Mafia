@@ -1028,13 +1028,20 @@ async def next_turn_callback(callback: types.CallbackQuery):
             paused_main_duration = None
             await start_turn(resume_seat, duration=resume_dur, is_challenge=False)
             return
-
-        # اگر بعد بود → حالا نوبت اصلی Y (که توی turn_order هست) اجرا بشه
-        if post_challenge_advance:
+       if post_challenge_advance:
             post_challenge_advance = False
+            # ایندکس رو ببریم روی Y (چالش‌کننده) برای اجرای نوبت اصلی بعداً
+            current_turn_index += 1
+            if current_turn_index >= len(turn_order):
+                await bot.send_message(group_chat_id, "✅ همه بازیکنان صحبت کردند. فاز روز پایان یافت.")
+                current_turn_index = 0
+                return
+
             next_seat = turn_order[current_turn_index]
             await start_turn(next_seat, duration=DEFAULT_TURN_DURATION, is_challenge=False)
             return
+
+
 
         return
 
