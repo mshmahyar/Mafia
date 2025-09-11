@@ -1261,9 +1261,19 @@ async def handle_challenge_response(callback: types.CallbackQuery):
         challenge_requests[target_seat].pop(challenger_id, None)
 
     if action == "reject":
+        challenge_requests[target_seat] = {}
+        await callback.message.edit_reply_markup(reply_markup=None)  # ❌ حذف دکمه‌ها
         await bot.send_message(group_chat_id, f"🚫 {target_name} درخواست چالش {challenger_name} را رد کرد.")
         await callback.answer()
         return
+
+    if action == "accept":
+        # همه درخواست‌های مربوط به target پاک بشن
+        challenge_requests[target_seat] = {}
+        # فقط target به active_challenger_seats اضافه میشه
+        active_challenger_seats.add(target_seat)
+
+        await callback.message.edit_reply_markup(reply_markup=None)  # ❌ حذف دکمه‌ها
 
     # ✅ فقط target (صاحب نوبت) به لیست چالش‌دهنده‌ها اضافه میشه
     active_challenger_seats.add(target_seat)
