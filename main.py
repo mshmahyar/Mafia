@@ -1019,7 +1019,7 @@ async def next_turn_callback(callback: types.CallbackQuery):
     global current_turn_index, turn_order, turn_timer_task
     global challenge_mode, paused_main_player, paused_main_duration, post_challenge_advance
 
-    await callback.answer()  # ✅ همیشه جواب بدیم تا لودینگ نشه
+    await callback.answer()  # جلوگیری از لودینگ
 
     try:
         seat = int(callback.data.split("_", 1)[1])
@@ -1027,7 +1027,7 @@ async def next_turn_callback(callback: types.CallbackQuery):
         await bot.send_message(group_chat_id, "⚠️ دادهٔ نادرست برای نکست.")
         return
 
-    # فقط گرداننده یا صاحب نوبت اجازه دارن
+    # فقط گرداننده یا صاحب نوبت
     player_uid = player_slots.get(seat)
     if callback.from_user.id != moderator_id and callback.from_user.id != player_uid:
         await callback.answer("❌ فقط بازیکن مربوطه یا گرداننده می‌تواند نوبت را پایان دهد.", show_alert=True)
@@ -1037,11 +1037,11 @@ async def next_turn_callback(callback: types.CallbackQuery):
     if turn_timer_task and not turn_timer_task.done():
         turn_timer_task.cancel()
 
-    # اگر نوبت در حالت چالش بوده
+    # 🔹 منطق چالش
     if challenge_mode:
         challenge_mode = False
         if paused_main_player is not None:
-            # برگردیم به نوبت اصلی
+            # برگرد به نوبت اصلی
             await start_turn(paused_main_player, duration=paused_main_duration)
             paused_main_player = None
             paused_main_duration = None
@@ -1049,22 +1049,18 @@ async def next_turn_callback(callback: types.CallbackQuery):
         elif post_challenge_advance:
             post_challenge_advance = False
             current_turn_index += 1
-
     else:
-        # نوبت اصلی → بریم سراغ نفر بعدی
+        # 🔹 منطق نوبت عادی
         current_turn_index += 1
 
-    # پایان روز
+    # 🔹 متمرکز: یا روز تموم شده یا باید نوبت بعدی شروع بشه
     if current_turn_index >= len(turn_order):
         kb = InlineKeyboardMarkup()
         kb.add(InlineKeyboardButton("🌙 شروع فاز شب", callback_data="start_night"))
         await bot.send_message(group_chat_id, "✅ همه بازیکنان صحبت کردند. فاز روز پایان یافت.", reply_markup=kb)
-        return
-
-    # شروع نوبت بعدی
-    await start_turn(turn_order[current_turn_index])
-
-
+    else:
+        next_seat = turn_order[current_turn_index]
+        await start_turn(next_seat)
 
     # ======================
     # حالت چالش فعال
