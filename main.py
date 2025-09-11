@@ -991,64 +991,69 @@ async def countdown(seat, duration, message_id, is_challenge=False):
 # ======================
 # نکست نوبت
 # ======================
+
 @dp.callback_query_handler(lambda c: c.data.startswith("next_"))
 async def next_turn_callback(callback: types.CallbackQuery):
-    global current_turn_index, turn_order, turn_timer_task, challenge_mode, paused_main_player, paused_main_duration, post_challenge_advance
+    global current_turn_index, turn_order, turn_timer_task
+    global challenge_mode, paused_main_player, paused_main_duration, post_challenge_advance
 
     try:
-        seat = int(callback.data.split("_",1)[1])
+        seat = int(callback.data.split("_", 1)[1])
     except Exception:
         await callback.answer("⚠️ دادهٔ نادرست برای نکست.", show_alert=True)
         return
 
-    # فقط گرداننده یا خود بازیکن مربوطه می‌تواند نوبت را پایان دهد
+    # فقط گرداننده یا صاحب نوبت
     player_uid = player_slots.get(seat)
     if callback.from_user.id != moderator_id and callback.from_user.id != player_uid:
         await callback.answer("❌ فقط بازیکن مربوطه یا گرداننده می‌تواند نوبت را پایان دهد.", show_alert=True)
         return
 
-    # قبل از هر چیز، لغو تایمر فعلی
+    # لغو تایمر فعلی
     if turn_timer_task and not turn_timer_task.done():
         turn_timer_task.cancel()
 
-    # اگر الان در حالت چالش بودیم -> این Next مربوط به پایان نوبت چالش است
+    # ======================
+    # حالت چالش فعال
+    # ======================
     if challenge_mode:
         challenge_mode = False
-        await callback.answer("✅نوبت چالش تموم شد.")
-        # اگر paused_main_player ست شده باشد یعنی این چالش از نوع "before" بوده -> resume نوبت اصلی
-        if paused_main_player:
+        await callback.answer("✅ نوبت چالش تمام شد.")
+
+        # اگر قبل بود → حالا نوبت اصلی X اجرا بشه
+        if paused_main_player is not None:
             resume_seat = paused_main_player
             resume_dur = paused_main_duration or DEFAULT_TURN_DURATION
             paused_main_player = None
             paused_main_duration = None
             await start_turn(resume_seat, duration=resume_dur, is_challenge=False)
             return
-        # اگر قرار بود بعد از چالش به نوبت بعدی بریم (post_challenge_advance) -> advance کن
+
+        # اگر بعد بود → حالا نوبت اصلی Y (که توی turn_order هست) اجرا بشه
         if post_challenge_advance:
             post_challenge_advance = False
             next_seat = turn_order[current_turn_index]
             await start_turn(next_seat, duration=DEFAULT_TURN_DURATION, is_challenge=False)
             return
-        # در غیر اینصورت فقط ادامه عادی (بدون resume/advance)
+
         return
 
-    # اگر برای این seat چالش بعد ثبت شده است -> ابتدا چالش اجرا شود
+    # ======================
+    # حالت نوبت عادی
+    # ======================
+    # اگر بعد از این بازیکن چالشی ثبت شده → اول نوبت اصلی اون، بعد Y
     if seat in pending_challenges:
         challenger_uid = pending_challenges.pop(seat, None)
         if challenger_uid:
-            challenger_seat = next((s for s,u in player_slots.items() if u == challenger_uid), None)
-            if challenger_seat is None:
-                await bot.send_message(group_chat_id, "⚠️ چالش‌کننده صندلی ندارد؛ چالش نادیده گرفته شد.")
-            else:
-                # اجرای نوبتِ چالش‌کننده (نوع after) — بعد از چالش به نوبت بعدی می‌رویم
+            challenger_seat = next((s for s, u in player_slots.items() if u == challenger_uid), None)
+            if challenger_seat:
                 challenge_mode = True
                 post_challenge_advance = True
                 await callback.answer("⚔ چالش ثبت‌شده اجرا می‌شود.", show_alert=True)
                 await start_turn(challenger_seat, duration=60, is_challenge=True)
                 return
 
-    # اگر نه، بریم سراغ نوبت بعدی عادی
-    # افزایش ایندکس و اجرای نفر بعد
+    # رفتن به نوبت بعدی
     current_turn_index += 1
     if current_turn_index >= len(turn_order):
         await bot.send_message(group_chat_id, "✅ همه بازیکنان صحبت کردند. فاز روز پایان یافت.")
@@ -1056,8 +1061,9 @@ async def next_turn_callback(callback: types.CallbackQuery):
         return
 
     next_seat = turn_order[current_turn_index]
-    await callback.answer()  # بستن لودر
+    await callback.answer()
     await start_turn(next_seat, duration=DEFAULT_TURN_DURATION, is_challenge=False)
+
 
 #=======================
 # درخواست چالش
@@ -1104,6 +1110,7 @@ async def challenge_choice(callback: types.CallbackQuery):
         await bot.send_message(group_chat_id, f"🚫 {challenger_name} از ارسال چالش منصرف شد.")
 
     await callback.answer()
+    
 # ======================
 # درخواست چالش (باز کردن منوی انتخاب قبل/بعد/انصراف)
 # ======================
@@ -1160,19 +1167,10 @@ async def handle_challenge_response(callback: types.CallbackQuery):
 
     parts = callback.data.split("_")
     action = parts[0]      # accept / reject
-    timing = parts[1] if action == "accept" else None  # before / after
+    timing = parts[1] if action == "accept" else None
     challenger_id = int(parts[2])
     target_id = int(parts[3])
-    
-    if action == "reject":
-        challenger_id = int(parts[1])
-        target_id = int(parts[2])
-        # ...
-    elif action == "accept":
-        timing = parts[1]  # before یا after
-        challenger_id = int(parts[2])
-        target_id = int(parts[3])
-        
+
     target_seat = next((s for s, u in player_slots.items() if u == target_id), None)
     challenger_seat = next((s for s, u in player_slots.items() if u == challenger_id), None)
 
@@ -1180,7 +1178,7 @@ async def handle_challenge_response(callback: types.CallbackQuery):
         await callback.answer("⚠️ صندلی نامعتبر.", show_alert=True)
         return
 
-    # فقط خود target (بازیکن جاری) یا گرداننده حق انتخاب دارد
+    # فقط صاحب نوبت یا گرداننده
     if callback.from_user.id not in [target_id, moderator_id]:
         await callback.answer("❌ فقط صاحب نوبت یا گرداننده می‌تواند تصمیم بگیرد.", show_alert=True)
         return
@@ -1188,37 +1186,39 @@ async def handle_challenge_response(callback: types.CallbackQuery):
     challenger_name = players.get(challenger_id, "بازیکن")
     target_name = players.get(target_id, "بازیکن")
 
-    # رد کردن
     if action == "reject":
         challenge_requests[target_seat][challenger_id] = "rejected"
         await bot.send_message(group_chat_id, f"🚫 {target_name} درخواست چالش {challenger_name} را رد کرد.")
         await callback.answer()
         return
 
-    # پذیرش → بقیه درخواست‌ها باطل شوند
+    # بقیه درخواست‌ها رد میشن
     for cid in list(challenge_requests.get(target_seat, {})):
         if cid != challenger_id:
             challenge_requests[target_seat][cid] = "rejected"
     challenge_requests[target_seat][challenger_id] = "accepted"
 
-    # اجرای چالش
+    # --- قبول چالش ---
     if timing == "before":
+        # نوبت اصلی X (target) موقتاً متوقف بشه
         paused_main_player = target_seat
         paused_main_duration = DEFAULT_TURN_DURATION
         challenge_mode = True
-        active_challenger_seats.add(target_seat)
-        await bot.send_message(group_chat_id, f"⚔ {target_name} درخواست چالش {challenger_name} را قبول کرد (قبل از صحبت).")
+
+        await bot.send_message(group_chat_id,
+            f"⚔ {target_name} درخواست چالش {challenger_name} را قبول کرد (قبل از صحبت).")
+
+        # اول نوبت چالش Y
         await start_turn(challenger_seat, duration=60, is_challenge=True)
-        
 
     elif timing == "after":
+        # نوبت X (target) اول اجرا میشه، بعد Y
         pending_challenges[target_seat] = challenger_id
-        active_challenger_seats.add(target_seat)
-        
-        await bot.send_message(group_chat_id, f"⚔ {target_name} درخواست چالش {challenger_name} را قبول کرد (بعد از صحبت).")
+
+        await bot.send_message(group_chat_id,
+            f"⚔ {target_name} درخواست چالش {challenger_name} را قبول کرد (بعد از صحبت).")
 
     await callback.answer()
-
 
 # ======================
 # انتخاب نوع چالش (قبل / بعد / انصراف)
