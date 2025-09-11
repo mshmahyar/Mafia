@@ -161,13 +161,15 @@ def turn_keyboard(seat, is_challenge=False):
     if not is_challenge:
         player_id = player_slots.get(seat)
         if player_id:
-            # اگر این بازیکن صاحب ترن بوده و قبلاً چالش رو ACCEPT کرده
+            # فقط اگر این بازیکن قبلاً چالش داده (accept کرده) → دکمه حذف بشه
             if seat in active_challenger_seats:
-                # دیگه دکمه درخواست چالش براش ساخته نشه
                 return kb
 
-            # چک کن این بازیکن قبلاً برای کسی درخواست چالش نفرستاده باشه
-            already_challenged = any(player_id in reqs for reqs in challenge_requests.values())
+            # فقط اگر هنوز درخواست pending داره → دکمه غیرفعال بشه
+            already_challenged = any(
+                reqs.get(player_id) == "pending"
+                for reqs in challenge_requests.values()
+            )
             if not already_challenged:
                 kb.add(InlineKeyboardButton("⚔ درخواست چالش", callback_data=f"challenge_request_{seat}"))
 
