@@ -1053,6 +1053,23 @@ async def next_turn_callback(callback: types.CallbackQuery):
         # 🔹 منطق نوبت عادی
         current_turn_index += 1
 
+    else:
+        # 🔹 نوبت اصلی → بررسی کنیم آیا چالش بعد صحبت داره؟
+        seat_played = turn_order[current_turn_index]
+        if seat_played in pending_challenges:
+            challenger_id = pending_challenges.pop(seat_played)
+            challenger_seat = next((s for s, u in player_slots.items() if u == challenger_id), None)
+            if challenger_seat:
+                # 🔑 اول چالش اجرا بشه
+                await start_turn(challenger_seat, duration=60, is_challenge=True)
+                # فلگ بذاریم که بعد از پایان چالش نفر بعدی شروع بشه
+                post_challenge_advance = True
+                return
+
+        # اگه چالش pending نبود → برو نفر بعدی
+        current_turn_index += 1
+
+
     # 🔹 متمرکز: یا روز تموم شده یا باید نوبت بعدی شروع بشه
     if current_turn_index >= len(turn_order):
         kb = InlineKeyboardMarkup()
