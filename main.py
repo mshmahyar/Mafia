@@ -1015,25 +1015,18 @@ async def countdown(seat, duration, message_id, is_challenge=False):
 # نکست نوبت
 # ======================
 @dp.callback_query_handler(lambda c: c.data.startswith("next_"))
-async def next_turn_callback(callback: types.CallbackQuery):
-    global current_turn_index, turn_order, turn_timer_task
-    global challenge_mode, paused_main_player, paused_main_duration, post_challenge_advance
-
-    await callback.answer()  # جلوگیری از لودینگ
-
+async def next_turn(callback: types.CallbackQuery):
     try:
         seat = int(callback.data.split("_", 1)[1])
     except Exception:
         await bot.send_message(group_chat_id, "⚠️ دادهٔ نادرست برای نکست.")
         return
 
-    # فقط گرداننده یا صاحب نوبت
     player_uid = player_slots.get(seat)
     if callback.from_user.id != moderator_id and callback.from_user.id != player_uid:
         await callback.answer("❌ فقط بازیکن مربوطه یا گرداننده می‌تواند نوبت را پایان دهد.", show_alert=True)
         return
 
-    # لغو تایمر فعلی
     if turn_timer_task and not turn_timer_task.done():
         turn_timer_task.cancel()
 
@@ -1041,7 +1034,6 @@ async def next_turn_callback(callback: types.CallbackQuery):
     if challenge_mode:
         challenge_mode = False
         if paused_main_player is not None:
-            # برگرد به نوبت اصلی
             await start_turn(paused_main_player, duration=paused_main_duration)
             paused_main_player = None
             paused_main_duration = None
@@ -1050,27 +1042,20 @@ async def next_turn_callback(callback: types.CallbackQuery):
             post_challenge_advance = False
             current_turn_index += 1
     else:
-        # 🔹 منطق نوبت عادی
         current_turn_index += 1
 
-    else:
-        # 🔹 نوبت اصلی → بررسی کنیم آیا چالش بعد صحبت داره؟
+    # 🔹 بررسی چالش بعدی
+    if current_turn_index < len(turn_order):
         seat_played = turn_order[current_turn_index]
         if seat_played in pending_challenges:
             challenger_id = pending_challenges.pop(seat_played)
             challenger_seat = next((s for s, u in player_slots.items() if u == challenger_id), None)
             if challenger_seat:
-                # 🔑 اول چالش اجرا بشه
                 await start_turn(challenger_seat, duration=60, is_challenge=True)
-                # فلگ بذاریم که بعد از پایان چالش نفر بعدی شروع بشه
                 post_challenge_advance = True
                 return
 
-        # اگه چالش pending نبود → برو نفر بعدی
-        current_turn_index += 1
-
-
-    # 🔹 متمرکز: یا روز تموم شده یا باید نوبت بعدی شروع بشه
+    # 🔹 شروع نوبت بعدی یا پایان روز
     if current_turn_index >= len(turn_order):
         kb = InlineKeyboardMarkup()
         kb.add(InlineKeyboardButton("🌙 شروع فاز شب", callback_data="start_night"))
