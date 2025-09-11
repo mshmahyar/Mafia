@@ -157,15 +157,20 @@ async def handle_slot(callback: types.CallbackQuery):
 def turn_keyboard(seat, is_challenge=False):
     kb = InlineKeyboardMarkup(row_width=2)
     kb.add(InlineKeyboardButton("⏭ نکست", callback_data=f"next_{seat}"))
+
     if not is_challenge:
         player_id = player_slots.get(seat)
         if player_id:
-            if seat in active_challenger_seats and not is_challenge:
+            # اگر این بازیکن صاحب ترن بوده و قبلاً چالش رو ACCEPT کرده
+            if seat in active_challenger_seats:
+                # دیگه دکمه درخواست چالش براش ساخته نشه
                 return kb
 
+            # چک کن این بازیکن قبلاً برای کسی درخواست چالش نفرستاده باشه
             already_challenged = any(player_id in reqs for reqs in challenge_requests.values())
             if not already_challenged:
                 kb.add(InlineKeyboardButton("⚔ درخواست چالش", callback_data=f"challenge_request_{seat}"))
+
     return kb
 
 # ======================
@@ -1186,7 +1191,6 @@ async def handle_challenge_response(callback: types.CallbackQuery):
         await callback.answer("⚠️ صندلی نامعتبر.", show_alert=True)
         return
 
-    # فقط صاحب نوبت یا گرداننده
     if callback.from_user.id not in [target_id, moderator_id]:
         await callback.answer("❌ فقط صاحب نوبت یا گرداننده می‌تواند تصمیم بگیرد.", show_alert=True)
         return
@@ -1206,14 +1210,14 @@ async def handle_challenge_response(callback: types.CallbackQuery):
             challenge_requests[target_seat][cid] = "rejected"
     challenge_requests[target_seat][challenger_id] = "accepted"
 
+    # صاحب ترن چون ACCEPT کرده → دیگه نباید دوباره چالش بده
+    active_challenger_seats.add(target_seat)
+
     # --- قبول چالش ---
     if timing == "before":
         paused_main_player = target_seat
         paused_main_duration = DEFAULT_TURN_DURATION
         challenge_mode = True
-
-        # صاحب ترن چون accept کرده → دیگه نباید دوباره چالش بده
-        active_challenger_seats.add(target_seat)
 
         await bot.send_message(
             group_chat_id,
@@ -1223,9 +1227,6 @@ async def handle_challenge_response(callback: types.CallbackQuery):
 
     elif timing == "after":
         pending_challenges[target_seat] = challenger_id
-
-        # صاحب ترن چون accept کرده → دیگه نباید دوباره چالش بده
-        active_challenger_seats.add(target_seat)
 
         await bot.send_message(
             group_chat_id,
