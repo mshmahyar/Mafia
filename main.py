@@ -1229,7 +1229,7 @@ elif timing == "after":
         f"⚔ {target_name} درخواست چالش {challenger_name} را قبول کرد (بعد از صحبت).")
 
 
-    await callback.answer()
+await callback.answer()
 
 # ======================
 # انتخاب نوع چالش (قبل / بعد / انصراف)
