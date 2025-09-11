@@ -1028,7 +1028,7 @@ async def next_turn_callback(callback: types.CallbackQuery):
             paused_main_duration = None
             await start_turn(resume_seat, duration=resume_dur, is_challenge=False)
             return
-       if post_challenge_advance:
+        if post_challenge_advance:
             post_challenge_advance = False
             # ایندکس رو ببریم روی Y (چالش‌کننده) برای اجرای نوبت اصلی بعداً
             current_turn_index += 1
