@@ -1207,29 +1207,32 @@ async def handle_challenge_response(callback: types.CallbackQuery):
     challenge_requests[target_seat][challenger_id] = "accepted"
 
     # --- قبول چالش ---
-if timing == "before":
-    paused_main_player = target_seat
-    paused_main_duration = DEFAULT_TURN_DURATION
-    challenge_mode = True
+    if timing == "before":
+        paused_main_player = target_seat
+        paused_main_duration = DEFAULT_TURN_DURATION
+        challenge_mode = True
 
-    # صاحب ترن چون accept کرده → دیگه نباید دوباره چالش بده
-    active_challenger_seats.add(target_seat)
+        # صاحب ترن چون accept کرده → دیگه نباید دوباره چالش بده
+        active_challenger_seats.add(target_seat)
 
-    await bot.send_message(group_chat_id,
-        f"⚔ {target_name} درخواست چالش {challenger_name} را قبول کرد (قبل از صحبت).")
-    await start_turn(challenger_seat, duration=60, is_challenge=True)
+        await bot.send_message(
+            group_chat_id,
+            f"⚔ {target_name} درخواست چالش {challenger_name} را قبول کرد (قبل از صحبت)."
+        )
+        await start_turn(challenger_seat, duration=60, is_challenge=True)
 
-elif timing == "after":
-    pending_challenges[target_seat] = challenger_id
+    elif timing == "after":
+        pending_challenges[target_seat] = challenger_id
 
-    # صاحب ترن چون accept کرده → دیگه نباید دوباره چالش بده
-    active_challenger_seats.add(target_seat)
+        # صاحب ترن چون accept کرده → دیگه نباید دوباره چالش بده
+        active_challenger_seats.add(target_seat)
 
-    await bot.send_message(group_chat_id,
-        f"⚔ {target_name} درخواست چالش {challenger_name} را قبول کرد (بعد از صحبت).")
+        await bot.send_message(
+            group_chat_id,
+            f"⚔ {target_name} درخواست چالش {challenger_name} را قبول کرد (بعد از صحبت)."
+        )
 
-
-await callback.answer()
+    await callback.answer()
 
 # ======================
 # انتخاب نوع چالش (قبل / بعد / انصراف)
