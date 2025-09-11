@@ -1081,7 +1081,7 @@ async def challenge_choice(callback: types.CallbackQuery):
         return
 
     if action == "before":
-        paused_main_player = target_id
+        paused_main_player = target_seat
         paused_main_duration = DEFAULT_TURN_DURATION
 
         if turn_timer_task and not turn_timer_task.done():
