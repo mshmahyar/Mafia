@@ -1142,36 +1142,36 @@ async def challenge_request(callback: types.CallbackQuery):
 
     target_id = player_slots.get(target_seat)
     if not target_id:
-        await callback.answer("⚠️ این صندلی بازیکن ندارد.", show_alert=True)
+        await callback.answer("⚠️ بازیکن یافت نشد.", show_alert=True)
         return
+
+    # نمی‌تونی به خودت درخواست بدی
     if challenger_id == target_id:
-        await callback.answer("❌ نمی‌توانی خودت را چالش کنی.", show_alert=True)
+        await callback.answer("❌ نمی‌توانی به خودت درخواست چالش بدهی.", show_alert=True)
         return
 
-    # محدودیت: هر بازیکن فقط یکبار می‌تواند چالش بدهد
-    if any(challenger_id in reqs for reqs in challenge_requests.values()):
-        await callback.answer("❌ فقط یکبار می‌توانی چالش بدهی.", show_alert=True)
-        return
-
-    # ثبت درخواست
-    challenge_requests.setdefault(target_seat, {})[challenger_id] = "pending"
     challenger_name = players.get(challenger_id, "بازیکن")
+    target_name = players.get(target_id, "بازیکن")
 
-    # اطلاع به بازیکن جاری
-    kb = InlineKeyboardMarkup(row_width=1)
+    # ثبت درخواست جدید
+    if target_seat not in challenge_requests:
+        challenge_requests[target_seat] = {}
+    if challenger_id in challenge_requests[target_seat]:
+        await callback.answer("❌ در این نوبت قبلاً درخواست داده‌ای.", show_alert=True)
+        return
+
+    challenge_requests[target_seat][challenger_id] = "pending"
+
+    kb = InlineKeyboardMarkup(row_width=2)
     kb.add(
-        InlineKeyboardButton("⚔ قبول قبل", callback_data=f"accept_before_{challenger_id}_{target_id}"),
-        InlineKeyboardButton("⚔ قبول بعد", callback_data=f"accept_after_{challenger_id}_{target_id}"),
-        InlineKeyboardButton("🚫 رد", callback_data=f"reject_{challenger_id}_{target_id}")
-    )
-    
-    await bot.send_message(
-        group_chat_id,
-        f"📢 {challenger_name} از {players.get(target_id,'بازیکن')} درخواست چالش کرده.\nتصمیم با {players.get(target_id,'بازیکن')} است.",
-        reply_markup=kb
+        InlineKeyboardButton("✅ قبول (قبل)", callback_data=f"accept_before_{challenger_id}_{target_id}"),
+        InlineKeyboardButton("✅ قبول (بعد)", callback_data=f"accept_after_{challenger_id}_{target_id}"),
+        InlineKeyboardButton("❌ رد", callback_data=f"reject_{challenger_id}_{target_id}")
     )
 
-    await callback.answer("✅ درخواست چالش ثبت شد.")
+    await bot.send_message(group_chat_id, f"⚔ {challenger_name} از {target_name} درخواست چالش کرد.", reply_markup=kb)
+    await callback.answer("⏳ درخواست ارسال شد.", show_alert=True)
+
 
 #=======================
 # پذیرش/رد چالش
@@ -1200,22 +1200,18 @@ async def handle_challenge_response(callback: types.CallbackQuery):
     challenger_name = players.get(challenger_id, "بازیکن")
     target_name = players.get(target_id, "بازیکن")
 
+    # درخواست‌های بازیکن مربوطه رو از لیست پاک می‌کنیم
+    if target_seat in challenge_requests:
+        challenge_requests[target_seat].pop(challenger_id, None)
+
     if action == "reject":
-        challenge_requests[target_seat][challenger_id] = "rejected"
         await bot.send_message(group_chat_id, f"🚫 {target_name} درخواست چالش {challenger_name} را رد کرد.")
         await callback.answer()
         return
 
-    # بقیه درخواست‌ها رد میشن
-    for cid in list(challenge_requests.get(target_seat, {})):
-        if cid != challenger_id:
-            challenge_requests[target_seat][cid] = "rejected"
-    challenge_requests[target_seat][challenger_id] = "accepted"
-
-    # صاحب ترن چون ACCEPT کرده → دیگه نباید دوباره چالش بده
+    # ✅ فقط target (صاحب نوبت) به لیست چالش‌دهنده‌ها اضافه میشه
     active_challenger_seats.add(target_seat)
 
-    # --- قبول چالش ---
     if timing == "before":
         paused_main_player = target_seat
         paused_main_duration = DEFAULT_TURN_DURATION
