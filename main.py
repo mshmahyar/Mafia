@@ -548,7 +548,7 @@ async def distribute_roles_callback(callback: types.CallbackQuery):
     )
 
     kb = InlineKeyboardMarkup(row_width=1)
-    kb.add(InlineKeyboardButton("👑 انتخاب سر صحبت", callback_data="choose_head_"))
+    kb.add(InlineKeyboardButton("👑 انتخاب سر صحبت", callback_data="choose_head"))
     kb.add(InlineKeyboardButton("▶ شروع دور", callback_data="start_round"))
 
     try:
@@ -619,6 +619,26 @@ async def distribute_roles():
             pass
 
     return mapping
+#==================
+# شروع راند
+#==================
+@dp.callback_query_handler(lambda c: c.data == "start_round")
+async def start_round_handler(callback: types.CallbackQuery):
+    global turn_order, current_turn_index, round_active
+
+    if not turn_order:
+        seats_list = sorted(player_slots.keys())
+        if not seats_list:
+            await callback.answer("⚠️ هیچ بازیکنی در بازی نیست.", show_alert=True)
+            return
+        turn_order = seats_list[:]  # همه بازیکن‌ها به ترتیب صندلی
+
+    round_active = True
+    current_turn_index = 0  # شروع از سر صحبت
+
+    first_seat = turn_order[current_turn_index]  # صندلی یا آی‌دی بازیکن اول
+    await start_turn(first_seat, duration=DEFAULT_TURN_DURATION, is_challenge=False)
+    await callback.answer()
 
 #======================
 # تابع کمکی برای ساخت / بروزرسانی پیام گروه (پیام «بازی شروع شد»
@@ -661,7 +681,7 @@ async def render_game_message(edit=True):
     )
 
     kb = InlineKeyboardMarkup(row_width=1)
-    kb.add(InlineKeyboardButton("🎯 انتخاب سر صحبت", callback_data="choose_head_"))
+    kb.add(InlineKeyboardButton("🎯 انتخاب سر صحبت", callback_data="choose_head"))
     kb.add(InlineKeyboardButton("▶ شروع دور", callback_data="start_round"))
 
     try:
@@ -731,7 +751,7 @@ async def start_play(callback: types.CallbackQuery):
     # کیبورد جدید (انتخاب سر صحبت + شروع دور)
     kb = InlineKeyboardMarkup(row_width=1)
     kb.add(
-        InlineKeyboardButton("👑 انتخاب سر صحبت", callback_data="choose_head_"),
+        InlineKeyboardButton("👑 انتخاب سر صحبت", callback_data="choose_head"),
         InlineKeyboardButton("▶ شروع دور", callback_data="start_round")
     )
     
@@ -755,63 +775,38 @@ async def start_play(callback: types.CallbackQuery):
 #==================================
 #منو انتخاب سر صحبت (نمایش گزینه خودکار/دستی)
 #==================================
-# =========================
-# انتخاب سر صحبت
-# =========================
-@dp.callback_query_handler(lambda c: c.data.startswith("choose_head_"))
+@dp.callback_query_handler(lambda c: c.data == "choose_head")
 async def choose_head(callback: types.CallbackQuery):
-    global head_speaker, starting_speaker_index, challenge_enabled
+    global game_message_id
 
-    try:
-        seat = int(callback.data.split("_", 2)[2])
-    except (IndexError, ValueError):
-        await callback.answer("⚠️ داده نادرست برای سر صحبت.", show_alert=True)
+    if callback.from_user.id != moderator_id:
+        await callback.answer("❌ فقط گرداننده می‌تواند این کار را انجام دهد.", show_alert=True)
         return
 
-    head_speaker = seat
-    starting_speaker_index = turn_order.index(seat)
-    challenge_enabled = True  # پیش‌فرض فعال
-
-    kb = InlineKeyboardMarkup(row_width=2)
+    kb = InlineKeyboardMarkup(row_width=1)
     kb.add(
-        InlineKeyboardButton("🚫 چالش آف", callback_data="challenge_off"),
-        InlineKeyboardButton("▶️ شروع دور", callback_data="start_round")
+        InlineKeyboardButton("🎲 انتخاب خودکار", callback_data="speaker_auto"),
+        InlineKeyboardButton("✋ انتخاب دستی", callback_data="speaker_manual")
     )
 
-    await callback.message.edit_text(
-        f"👤 بازیکن صندلی {seat} به‌عنوان سر صحبت انتخاب شد.\n"
-        "یکی از گزینه‌ها را انتخاب کنید:",
-        reply_markup=kb
-    )
+    text = "🔧 روش انتخاب سر صحبت را انتخاب کنید:"
 
+    try:
+        # تلاش برای ویرایش پیام قبلی
+        await bot.edit_message_text(
+            text,
+            chat_id=group_chat_id,
+            message_id=game_message_id,
+            reply_markup=kb,
+            parse_mode="HTML"
+        )
+    except Exception as e:
+        logging.warning(f"⚠️ خطا در نمایش منو: {e}")
+        # اگر پیام قبلی قابل ویرایش نبود → پیام جدید بفرست
+        msg = await bot.send_message(group_chat_id, text, reply_markup=kb)
+        game_message_id = msg.message_id  # بروزرسانی آیدی پیام جدید
 
-# =========================
-# دکمه چالش آف
-# =========================
-@dp.callback_query_handler(lambda c: c.data == "challenge_off")
-async def challenge_off(callback: types.CallbackQuery):
-    global challenge_enabled
-    challenge_enabled = False
-    await callback.answer("✅ چالش‌ها برای این دور غیرفعال شد", show_alert=True)
-
-
-# =========================
-# دکمه شروع دور
-# =========================
-@dp.callback_query_handler(lambda c: c.data == "start_round")
-async def start_round(callback: types.CallbackQuery):
-    global current_turn_index, starting_speaker_index
-
-    current_turn_index = starting_speaker_index
-
-    await callback.message.answer(
-        "🎯 دور جدید شروع شد!\n"
-        f"🔊 نوبت اول با بازیکن صندلی {turn_order[current_turn_index]}"
-    )
-
-    # تابع شروع نوبت
-    await start_turn(turn_order[current_turn_index])
-
+    await callback.answer()
 
 #=======================================
 # انتخاب خودکار → نمایش لیست صندلی‌ها با دکمه برای انتخاب
@@ -846,7 +841,7 @@ async def speaker_auto(callback: types.CallbackQuery):
 
     # بازگرداندن منوی بازی (انتخاب سر صحبت + شروع دور)
     kb = InlineKeyboardMarkup(row_width=1)
-    kb.add(InlineKeyboardButton("👑 انتخاب سر صحبت", callback_data="choose_head_"))
+    kb.add(InlineKeyboardButton("👑 انتخاب سر صحبت", callback_data="choose_head"))
     kb.add(InlineKeyboardButton("▶ شروع دور", callback_data="start_round"))
 
     try:
@@ -930,7 +925,7 @@ async def head_set(callback: types.CallbackQuery):
 
     # بازگشت به منوی اصلی
     kb = InlineKeyboardMarkup(row_width=1)
-    kb.add(InlineKeyboardButton("👑 انتخاب سر صحبت", callback_data="choose_head_"))
+    kb.add(InlineKeyboardButton("👑 انتخاب سر صحبت", callback_data="choose_head"))
     kb.add(InlineKeyboardButton("▶ شروع دور", callback_data="start_round"))
 
     await bot.edit_message_reply_markup(
@@ -992,6 +987,13 @@ async def start_turn(seat, duration=DEFAULT_TURN_DURATION, is_challenge=False):
     # راه‌اندازی تایمر (task)
     turn_timer_task = asyncio.create_task(countdown(seat, duration, msg.message_id, is_challenge))
     
+#================
+# چالش آف
+#================
+@dp.callback_query_handler(lambda c: c.data == "challenge_off")
+async def challenge_off_handler(callback: types.CallbackQuery):
+    await callback.answer("⚔️ چالش در این مرحله غیرفعال است.", show_alert=True)
+
 #=============================
 # تایمر زندهٔ نوبت (ویرایش پیام هر N ثانیه)
 #=============================
@@ -1117,12 +1119,12 @@ async def start_new_day(callback: types.CallbackQuery):
 
     # ریست تمام داده‌های دور قبلی
     reset_round_data()
-
-    # کیبورد انتخاب سر صحبت
-    kb = InlineKeyboardMarkup(row_width=2)
-    kb.add(
-        InlineKeyboardButton("🎲 انتخاب سر صحبت خودکار", callback_data="speaker_auto"),
-        InlineKeyboardButton("🙋 انتخاب سر صحبت دستی", callback_data="speaker_manual")
+    # دکمه‌ها
+    keyboard = InlineKeyboardMarkup()
+    keyboard.add(
+        InlineKeyboardButton("🗣 انتخاب سر صحبت", callback_data="choose_head"),
+        InlineKeyboardButton(" درخواست آف", callback_data="challenge_off"),
+        InlineKeyboardButton("▶️ شروع دور", callback_data="start_turn")
     )
 
     await bot.send_message(group_chat_id, "🌞 روز جدید شروع شد! سر صحبت را انتخاب کنید:", reply_markup=kb)
