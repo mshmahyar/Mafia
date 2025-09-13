@@ -175,6 +175,8 @@ def turn_keyboard(seat, is_challenge=False):
     kb.add(InlineKeyboardButton("⏭ نکست", callback_data=f"next_{seat}"))
 
     if not is_challenge:
+        if not challenge_active:
+            return kb
         player_id = player_slots.get(seat)
         if player_id:
             # فقط اگر این بازیکن قبلاً چالش داده (accept کرده) → دکمه حذف بشه
@@ -1012,8 +1014,25 @@ async def handle_start_turn(callback: types.CallbackQuery):
 #================
 @dp.callback_query_handler(lambda c: c.data == "challenge_off")
 async def challenge_off_handler(callback: types.CallbackQuery):
-    await callback.answer("⚔️ چالش در این مرحله غیرفعال است.", show_alert=True)
+    global challenge_active
+    if callback.from_user.id != moderator_id:
+        await callback.answer("❌ فقط گرداننده می‌تواند چالش را غیرفعال کند.", show_alert=True)
+        return
 
+    if not challenge_active:
+        await callback.answer("⚔ چالش از قبل غیرفعال است.", show_alert=True)
+        return
+
+@dp.callback_query_handler(lambda c: c.data == "challenge_toggle")
+async def challenge_toggle_handler(callback: types.CallbackQuery):
+    global challenge_active
+
+    if callback.from_user.id != moderator_id:
+        await callback.answer("❌ فقط گرداننده می‌تواند وضعیت چالش را تغییر دهد.", show_alert=True)
+        return
+
+    # اینجا: تغییر وضعیت
+    challenge_active = not challenge_active
 #=============================
 # تایمر زندهٔ نوبت (ویرایش پیام هر N ثانیه)
 #=============================
@@ -1144,7 +1163,7 @@ async def start_new_day(callback: types.CallbackQuery):
     keyboard = InlineKeyboardMarkup()
     keyboard.add(
         InlineKeyboardButton("🗣 انتخاب سر صحبت", callback_data="choose_head"),
-        InlineKeyboardButton("⚔️ چالش (آف)", callback_data="challenge_off"),
+        InlineKeyboardButton("⚔ چالش آف", callback_data="challenge_toggle"),
         InlineKeyboardButton("▶️ شروع دور", callback_data="start_turn")
     )
 
