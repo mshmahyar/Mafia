@@ -552,6 +552,11 @@ async def distribute_roles_callback(callback: types.CallbackQuery):
     kb = InlineKeyboardMarkup(row_width=1)
     kb.add(InlineKeyboardButton("👑 انتخاب سر صحبت", callback_data="choose_head"))
     kb.add(InlineKeyboardButton("▶ شروع دور", callback_data="start_round"))
+    
+    if challenge_active:
+        kb.add(InlineKeyboardButton("⚔ چالش روشن", callback_data="challenge_toggle"))
+    else:
+        kb.add(InlineKeyboardButton("⚔ چالش خاموش", callback_data="challenge_toggle"))
 
     try:
         if lobby_message_id:
@@ -685,6 +690,12 @@ async def render_game_message(edit=True):
     kb = InlineKeyboardMarkup(row_width=1)
     kb.add(InlineKeyboardButton("🎯 انتخاب سر صحبت", callback_data="choose_head"))
     kb.add(InlineKeyboardButton("▶ شروع دور", callback_data="start_round"))
+    
+    if challenge_active:
+        kb.add(InlineKeyboardButton("⚔ چالش روشن", callback_data="challenge_toggle"))
+    else:
+        kb.add(InlineKeyboardButton("⚔ چالش خاموش", callback_data="challenge_toggle"))
+    
 
     try:
         if edit and game_message_id:
@@ -756,6 +767,10 @@ async def start_play(callback: types.CallbackQuery):
         InlineKeyboardButton("👑 انتخاب سر صحبت", callback_data="choose_head"),
         InlineKeyboardButton("▶ شروع دور", callback_data="start_round")
     )
+    if challenge_active:
+        kb.add(InlineKeyboardButton("⚔ چالش روشن", callback_data="challenge_toggle"))
+    else:
+        kb.add(InlineKeyboardButton("⚔ چالش خاموش", callback_data="challenge_toggle"))
     
     # ویرایش پیام لابی به پیام شروع بازی
     try:
@@ -845,6 +860,11 @@ async def speaker_auto(callback: types.CallbackQuery):
     kb = InlineKeyboardMarkup(row_width=1)
     kb.add(InlineKeyboardButton("👑 انتخاب سر صحبت", callback_data="choose_head"))
     kb.add(InlineKeyboardButton("▶ شروع دور", callback_data="start_round"))
+    
+    if challenge_active:
+        kb.add(InlineKeyboardButton("⚔ چالش روشن", callback_data="challenge_toggle"))
+    else:
+        kb.add(InlineKeyboardButton("⚔ چالش خاموش", callback_data="challenge_toggle"))
 
     try:
         await bot.edit_message_reply_markup(
@@ -929,6 +949,11 @@ async def head_set(callback: types.CallbackQuery):
     kb = InlineKeyboardMarkup(row_width=1)
     kb.add(InlineKeyboardButton("👑 انتخاب سر صحبت", callback_data="choose_head"))
     kb.add(InlineKeyboardButton("▶ شروع دور", callback_data="start_round"))
+
+    if challenge_active:
+        kb.add(InlineKeyboardButton("⚔ چالش روشن", callback_data="challenge_toggle"))
+    else:
+        kb.add(InlineKeyboardButton("⚔ چالش خاموش", callback_data="challenge_toggle"))
 
     await bot.edit_message_reply_markup(
         chat_id=group_chat_id,
@@ -1161,11 +1186,21 @@ async def start_new_day(callback: types.CallbackQuery):
 
     # دکمه‌ها
     keyboard = InlineKeyboardMarkup()
+
     keyboard.add(
         InlineKeyboardButton("🗣 انتخاب سر صحبت", callback_data="choose_head"),
-        InlineKeyboardButton("⚔ چالش آف", callback_data="challenge_toggle"),
+    )
+
+    # دکمه وضعیت چالش
+    if challenge_active:
+        keyboard.add(InlineKeyboardButton("⚔ چالش روشن", callback_data="challenge_toggle"))
+    else:
+        keyboard.add(InlineKeyboardButton("⚔ چالش خاموش", callback_data="challenge_toggle"))
+
+    keyboard.add(
         InlineKeyboardButton("▶️ شروع دور", callback_data="start_turn")
     )
+
 
     # ویرایش پیام فعلی
     await callback.message.edit_text("🌞 روز جدید شروع شد! سر صحبت را انتخاب کنید:", reply_markup=keyboard)
