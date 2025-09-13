@@ -548,7 +548,7 @@ async def distribute_roles_callback(callback: types.CallbackQuery):
     )
 
     kb = InlineKeyboardMarkup(row_width=1)
-    kb.add(InlineKeyboardButton("👑 انتخاب سر صحبت", callback_data="choose_head"))
+    kb.add(InlineKeyboardButton("👑 انتخاب سر صحبت", callback_data="choose_head_"))
     kb.add(InlineKeyboardButton("▶ شروع دور", callback_data="start_round"))
 
     try:
@@ -661,7 +661,7 @@ async def render_game_message(edit=True):
     )
 
     kb = InlineKeyboardMarkup(row_width=1)
-    kb.add(InlineKeyboardButton("🎯 انتخاب سر صحبت", callback_data="choose_head"))
+    kb.add(InlineKeyboardButton("🎯 انتخاب سر صحبت", callback_data="choose_head_"))
     kb.add(InlineKeyboardButton("▶ شروع دور", callback_data="start_round"))
 
     try:
@@ -731,7 +731,7 @@ async def start_play(callback: types.CallbackQuery):
     # کیبورد جدید (انتخاب سر صحبت + شروع دور)
     kb = InlineKeyboardMarkup(row_width=1)
     kb.add(
-        InlineKeyboardButton("👑 انتخاب سر صحبت", callback_data="choose_head"),
+        InlineKeyboardButton("👑 انتخاب سر صحبت", callback_data="choose_head_"),
         InlineKeyboardButton("▶ شروع دور", callback_data="start_round")
     )
     
@@ -758,7 +758,7 @@ async def start_play(callback: types.CallbackQuery):
 # =========================
 # انتخاب سر صحبت
 # =========================
-@dp.callback_query_handler(lambda c: c.data.startswith("choose_head"))
+@dp.callback_query_handler(lambda c: c.data.startswith("choose_head_"))
 async def choose_head(callback: types.CallbackQuery):
     global head_speaker, starting_speaker_index, challenge_enabled
 
@@ -846,7 +846,7 @@ async def speaker_auto(callback: types.CallbackQuery):
 
     # بازگرداندن منوی بازی (انتخاب سر صحبت + شروع دور)
     kb = InlineKeyboardMarkup(row_width=1)
-    kb.add(InlineKeyboardButton("👑 انتخاب سر صحبت", callback_data="choose_head"))
+    kb.add(InlineKeyboardButton("👑 انتخاب سر صحبت", callback_data="choose_head_"))
     kb.add(InlineKeyboardButton("▶ شروع دور", callback_data="start_round"))
 
     try:
@@ -930,7 +930,7 @@ async def head_set(callback: types.CallbackQuery):
 
     # بازگشت به منوی اصلی
     kb = InlineKeyboardMarkup(row_width=1)
-    kb.add(InlineKeyboardButton("👑 انتخاب سر صحبت", callback_data="choose_head"))
+    kb.add(InlineKeyboardButton("👑 انتخاب سر صحبت", callback_data="choose_head_"))
     kb.add(InlineKeyboardButton("▶ شروع دور", callback_data="start_round"))
 
     await bot.edit_message_reply_markup(
