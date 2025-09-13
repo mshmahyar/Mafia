@@ -1119,35 +1119,21 @@ async def start_new_day(callback: types.CallbackQuery):
 
     # ریست تمام داده‌های دور قبلی
     reset_round_data()
+
     # دکمه‌ها
     keyboard = InlineKeyboardMarkup()
     keyboard.add(
         InlineKeyboardButton("🗣 انتخاب سر صحبت", callback_data="choose_head"),
-        InlineKeyboardButton(" درخواست آف", callback_data="challenge_off"),
+        InlineKeyboardButton("⚔️ چالش (آف)", callback_data="challenge_off"),
         InlineKeyboardButton("▶️ شروع دور", callback_data="start_turn")
     )
 
-    await bot.send_message(group_chat_id, "🌞 روز جدید شروع شد! سر صحبت را انتخاب کنید:", reply_markup=kb)
+    # ویرایش پیام فعلی
+    await callback.message.edit_text("🌞 روز جدید شروع شد! سر صحبت را انتخاب کنید:", reply_markup=keyboard)
     await callback.answer()
 
 
-#=========================
-# شروع روز جدید
-#=========================
-@dp.callback_query_handler(lambda c: c.data == "start_day")
-async def start_day(callback: types.CallbackQuery):
-    # متن شروع روز
-    day_text = "🌞 روز جدید شروع شد!"
 
-    # دکمه‌های روز
-    keyboard = InlineKeyboardMarkup()
-    keyboard.add(
-        InlineKeyboardButton("🗣 انتخاب سر صحبت", callback_data="choose_head"),
-        InlineKeyboardButton("⚔️ چالش (غیرفعال)", callback_data="challenge_off"),
-        InlineKeyboardButton("▶️ شروع دور", callback_data="start_turn")
-    )
-
-    await callback.message.edit_text(day_text, reply_markup=keyboard)
 
 #=======================
 # درخواست چالش
