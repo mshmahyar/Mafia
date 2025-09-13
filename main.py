@@ -198,20 +198,44 @@ def turn_keyboard(seat, is_challenge=False):
 # ======================
 @dp.message_handler(commands=["start"])
 async def start_cmd(message: types.Message):
-    await message.reply("🏠 منوی اصلی:", reply_markup=main_menu_keyboard())
+    if message.chat.type == "private":
+        # منوی پیوی ربات
+        kb = InlineKeyboardMarkup(row_width=1)
+        kb.add(InlineKeyboardButton("🎮 بازی جدید", callback_data="new_game"))
+        
+        # فقط مدیر ربات این دو دکمه را می‌بیند
+        if message.from_user.id == moderator_id:
+            kb.add(InlineKeyboardButton("🛠 مدیریت بازی", callback_data="manage_game"))
+            kb.add(InlineKeyboardButton("⚙ مدیریت سناریو", callback_data="manage_scenario"))
+
+        kb.add(InlineKeyboardButton("📚 راهنما", callback_data="help"))
+
+        await message.reply("📋 منوی ربات:", reply_markup=kb)
+
+    else:
+        # منوی گروه همان منوی اصلی گروه
+        kb = main_menu_keyboard()  # همان منوی قبلی گروه
+        await message.reply("🏠 منوی اصلی گروه:", reply_markup=kb)
+
 
 @dp.callback_query_handler(lambda c: c.data == "new_game")
 async def start_game(callback: types.CallbackQuery):
     global group_chat_id, lobby_active, admins, lobby_message_id
-    group_chat_id = callback.message.chat.id
-    lobby_active = True    # فقط لابی فعال، بازی هنوز شروع نشده
-    admins = {member.user.id for member in await bot.get_chat_administrators(group_chat_id)}
-    msg = await callback.message.reply(
-        "🎮 بازی مافیا فعال شد!\nلطفا سناریو و گرداننده را انتخاب کنید:",
-        reply_markup=game_menu_keyboard()
-    )
-    lobby_message_id = msg.message_id
+
+    # فقط گروه: شروع لابی
+    if callback.message.chat.type != "private":
+        group_chat_id = callback.message.chat.id
+        lobby_active = True    # فقط لابی فعال، بازی هنوز شروع نشده
+        admins = {member.user.id for member in await bot.get_chat_administrators(group_chat_id)}
+
+        msg = await callback.message.reply(
+            "🎮 بازی مافیا فعال شد!\nلطفا سناریو و گرداننده را انتخاب کنید:",
+            reply_markup=game_menu_keyboard()
+        )
+        lobby_message_id = msg.message_id
+
     await callback.answer()
+
 
 # ======================
 # مدیریت سناریو
