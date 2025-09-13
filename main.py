@@ -66,7 +66,7 @@ def reset_round_data():
     pending_challenges = {}
 
 # ======================
-# لود سناریوها
+#  لود سناریوها
 # ======================
 def load_scenarios():
     try:
