@@ -1131,7 +1131,23 @@ async def start_new_day(callback: types.CallbackQuery):
     await callback.answer()
 
 
+#=========================
+# شروع روز جدید
+#=========================
+@dp.callback_query_handler(lambda c: c.data == "start_day")
+async def start_day(callback: types.CallbackQuery):
+    # متن شروع روز
+    day_text = "🌞 روز جدید شروع شد!"
 
+    # دکمه‌های روز
+    keyboard = InlineKeyboardMarkup()
+    keyboard.add(
+        InlineKeyboardButton("🗣 انتخاب سر صحبت", callback_data="choose_head"),
+        InlineKeyboardButton("⚔️ چالش (غیرفعال)", callback_data="challenge_off"),
+        InlineKeyboardButton("▶️ شروع دور", callback_data="start_turn")
+    )
+
+    await callback.message.edit_text(day_text, reply_markup=keyboard)
 
 #=======================
 # درخواست چالش
