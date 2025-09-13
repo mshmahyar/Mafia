@@ -46,7 +46,7 @@ paused_main_player = None   # اگر چالش "قبل" ثبت شد، اینجا 
 paused_main_duration = None # (اختیاری) مدت زمان نوبت اصلی برای resume — معمولا 120
 DEFAULT_TURN_DURATION = 120  # مقدار پیش‌فرض نوبت اصلی (در صورت تمایل تغییر بده)
 challenges = {}  # {player_id: {"type": "before"/"after", "challenger": user_id}}
-challenge_active = False
+challenge_active = True
 post_challenge_advance = False   # وقتی اجرای چالش 'بعد' باشه، بعد از چالش به نوبت بعدی می‌رویم
 
 #=======================
