@@ -91,6 +91,54 @@ def extract_group_id_from_callback(callback):
     # fallback: گروه از محل پیام (اگر از گروه اومده باشه)
     return callback.message.chat.id    
 
+def sync_game_to_globals(group_id):
+    global players, player_slots, reserves, eliminated
+    global moderator, lobby_message_id, game_running
+    global selected_scenario, scenarios
+
+    game = ensure_game_entry(group_id)
+    players = game["players"].copy()
+    player_slots = game["player_slots"].copy()
+    reserves = game["reserves"].copy()
+    eliminated = game["eliminated"].copy()
+    moderator = game["moderator"]
+    lobby_message_id = game["lobby_message_id"]
+    game_running = game["game_running"]
+    selected_scenario = game["selected_scenario"]
+    scenarios = game["scenarios"].copy()
+
+def sync_globals_from_game(group_id):
+    """games[group_id] → globals"""
+    global players, player_slots, reserves, eliminated
+    global moderator, lobby_message_id, game_running
+    global selected_scenario, scenarios
+
+    game = ensure_game_entry(group_id)
+    players = game["players"].copy()
+    player_slots = game["player_slots"].copy()
+    reserves = game["reserves"].copy()
+    eliminated = game["eliminated"].copy()
+    moderator = game["moderator"]
+    lobby_message_id = game["lobby_message_id"]
+    game_running = game["game_running"]
+    selected_scenario = game["selected_scenario"]
+    scenarios = game["scenarios"].copy()
+
+
+def sync_game_from_globals(group_id):
+    """globals → games[group_id]"""
+    game = ensure_game_entry(group_id)
+    game["players"] = players.copy()
+    game["player_slots"] = player_slots.copy()
+    game["reserves"] = reserves.copy()
+    game["eliminated"] = eliminated.copy()
+    game["moderator"] = moderator
+    game["lobby_message_id"] = lobby_message_id
+    game["game_running"] = game_running
+    game["selected_scenario"] = selected_scenario
+    game["scenarios"] = scenarios.copy()
+
+
 
 #=======================
 # داده های ریست در شروع روز
@@ -688,89 +736,103 @@ async def back_main(callback: types.CallbackQuery):
 # ======================
 # انتخاب سناریو و گرداننده
 # ======================
-@dp.callback_query_handler(lambda c: c.data == "choose_scenario")
-async def choose_scenario(callback: types.CallbackQuery):
-    global lobby_active
 
-    if not lobby_active:
-        await callback.answer("❌ هیچ بازی فعالی برای انتخاب سناریو وجود ندارد.", show_alert=True)
+@dp.callback_query_handler(lambda c: c.data.startswith("choose_scenario"))
+async def choose_scenario(callback: types.CallbackQuery):
+    group_id = callback.message.chat.id if callback.message.chat.type in ["group", "supergroup"] else None
+    if not group_id:
+        await callback.answer("❌ این گزینه فقط در گروه فعال است.", show_alert=True)
         return
 
-    kb = InlineKeyboardMarkup(row_width=1)
-    for scen in scenarios:
-        kb.add(InlineKeyboardButton(scen, callback_data=f"scenario_{scen}"))
-    await callback.message.edit_text("📝 یک سناریو انتخاب کنید:", reply_markup=kb)
-    await callback.answer()
-
-
-@dp.callback_query_handler(lambda c: c.data == "choose_scenario")
-async def choose_scenario(callback: types.CallbackQuery):
-    group_id = callback.message.chat.id
-    game = games.get(group_id)
-
-    if not game or not game["lobby_active"]:
-        await callback.answer("❌ هیچ بازی فعالی برای انتخاب سناریو وجود ندارد.", show_alert=True)
+    game = ensure_game_entry(group_id)
+    if not game["lobby_active"]:
+        await callback.answer("⚠️ هیچ بازی فعالی برای انتخاب سناریو وجود ندارد.", show_alert=True)
         return
 
-    # فرض می‌کنیم سناریوها در game["scenarios"] نگهداری میشن
+    # اگر هنوز هیچ سناریویی ثبت نشده
+    if not game["scenarios"]:
+        await callback.answer("⚠️ هیچ سناریویی تعریف نشده است.", show_alert=True)
+        return
+
+    # ساخت دکمه‌ها
     kb = InlineKeyboardMarkup()
-    for key, scenario in game["scenarios"].items():
-        kb.add(InlineKeyboardButton(scenario["name"], callback_data=f"scenario_{group_id}_{key}"))
+    for scen_id, scen_name in game["scenarios"].items():
+        kb.add(InlineKeyboardButton(scen_name, callback_data=f"set_scenario_{group_id}_{scen_id}"))
 
     await callback.message.edit_text("📜 یک سناریو انتخاب کنید:", reply_markup=kb)
 
-
-    kb = InlineKeyboardMarkup(row_width=1)
-    for admin_id in admins:
-        member = await bot.get_chat_member(group_chat_id, admin_id)
-        kb.add(InlineKeyboardButton(member.user.full_name, callback_data=f"moderator_{admin_id}"))
-    await callback.message.edit_text("🎩 یک گرداننده انتخاب کنید:", reply_markup=kb)
-    await callback.answer()
-
-@dp.callback_query_handler(lambda c: c.data.startswith("scenario_"))
+@dp.callback_query_handler(lambda c: c.data.startswith("set_scenario_"))
 async def set_scenario(callback: types.CallbackQuery):
-    _, group_id, scenario_key = callback.data.split("_", 2)
-    group_id = int(group_id)
-
-    game = games.get(group_id)
-    if not game:
-        await callback.answer("❌ بازی پیدا نشد.", show_alert=True)
+    parts = callback.data.split("_", 3)  # set_scenario_groupid_scenid
+    if len(parts) < 3:
+        await callback.answer("❌ داده نامعتبر.", show_alert=True)
         return
 
-    game["selected_scenario"] = scenario_key
-    await callback.message.edit_text(f"✅ سناریوی انتخاب‌شده: {game['scenarios'][scenario_key]['name']}")
+    group_id = int(parts[2])
+    scen_id = parts[3] if len(parts) > 3 else None
+
+    game = ensure_game_entry(group_id)
+
+    if scen_id not in game["scenarios"]:
+        await callback.answer("❌ سناریوی انتخابی معتبر نیست.", show_alert=True)
+        return
+
+    # ذخیره در games
+    game["selected_scenario"] = scen_id
+    # sync به globals تا هندلرهای قدیمی هم ببینن
+    sync_globals_from_game(group_id)
+
+    await callback.answer("✅ سناریو انتخاب شد.", show_alert=True)
+    await callback.message.edit_text(f"📜 سناریوی انتخاب‌شده: {game['scenarios'][scen_id]}")
+
 
 #====================================================
-
-@dp.callback_query_handler(lambda c: c.data == "choose_moderator")
+@dp.callback_query_handler(lambda c: c.data.startswith("choose_moderator"))
 async def choose_moderator(callback: types.CallbackQuery):
-    group_id = callback.message.chat.id
-    game = games.get(group_id)
-
-    if not game or not game["lobby_active"]:
-        await callback.answer("❌ هیچ بازی فعالی برای انتخاب گرداننده وجود ندارد.", show_alert=True)
+    group_id = callback.message.chat.id if callback.message.chat.type in ["group", "supergroup"] else None
+    if not group_id:
+        await callback.answer("❌ این گزینه فقط در گروه فعال است.", show_alert=True)
         return
+
+    game = ensure_game_entry(group_id)
+    if not game["lobby_active"]:
+        await callback.answer("⚠️ هیچ بازی فعالی برای انتخاب گرداننده وجود ندارد.", show_alert=True)
+        return
+
+    # گرفتن ادمین‌ها
+    admins = {member.user.id: member.user.first_name for member in await bot.get_chat_administrators(group_id)}
+    game["admins"] = set(admins.keys())
 
     kb = InlineKeyboardMarkup()
-    for user_id, name in game["players"].items():
-        kb.add(InlineKeyboardButton(name, callback_data=f"moderator_{group_id}_{user_id}"))
+    for uid, name in admins.items():
+        kb.add(InlineKeyboardButton(name, callback_data=f"set_moderator_{group_id}_{uid}"))
 
-    await callback.message.edit_text("👑 یک گرداننده انتخاب کنید:", reply_markup=kb)
+    await callback.message.edit_text("👤 یک گرداننده انتخاب کنید:", reply_markup=kb)
 
-@dp.callback_query_handler(lambda c: c.data.startswith("moderator_"))
+
+@dp.callback_query_handler(lambda c: c.data.startswith("set_moderator_"))
 async def set_moderator(callback: types.CallbackQuery):
-    _, group_id, user_id = callback.data.split("_", 2)
-    group_id = int(group_id)
-    user_id = int(user_id)
-
-    game = games.get(group_id)
-    if not game:
-        await callback.answer("❌ بازی پیدا نشد.", show_alert=True)
+    parts = callback.data.split("_", 3)  # set_moderator_groupid_userid
+    if len(parts) < 4:
+        await callback.answer("❌ داده نامعتبر.", show_alert=True)
         return
 
-    game["moderator"] = user_id
-    await callback.message.edit_text(f"✅ گرداننده انتخاب‌شده: {game['players'].get(user_id, 'نامشخص')}")
+    group_id = int(parts[2])
+    user_id = int(parts[3])
 
+    game = ensure_game_entry(group_id)
+
+    if user_id not in game["admins"]:
+        await callback.answer("❌ این کاربر مدیر گروه نیست.", show_alert=True)
+        return
+
+    # ذخیره در games
+    game["moderator"] = user_id
+    # sync به globals
+    sync_globals_from_game(group_id)
+
+    await callback.answer("✅ گرداننده انتخاب شد.", show_alert=True)
+    await callback.message.edit_text(f"👤 گرداننده بازی: {user_id}")
 
 
 
