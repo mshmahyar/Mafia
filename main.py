@@ -267,8 +267,7 @@ async def start_cmd(message: types.Message):
         "🎮 بازی مافیا فعال شد!\nلطفا سناریو و گرداننده را انتخاب کنید:",
         reply_markup=game_menu_keyboard()
     )
-
-        lobby_message_id = msg.message_id
+    lobby_message_id = msg.message_id
 
     await callback.answer()
 
