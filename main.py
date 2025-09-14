@@ -20,56 +20,60 @@ logging.basicConfig(level=logging.INFO)
 bot = Bot(token=API_TOKEN, parse_mode="HTML")
 dp = Dispatcher(bot)
 
-# ======================
-# متغیرهای سراسری
-# ======================
-players = {}                # بازیکنان: {user_id: name}
-moderator_id = None         # آیدی گرداننده
-selected_scenario = None    # سناریوی انتخابی
-scenarios = {}              # لیست سناریوها
-game_message_id = None
-lobby_message_id = None     # پیام لابی
-group_chat_id = None
-admins = set()
-game_running = False     # وقتی بازی واقعاً شروع شده است (نقش‌ها ارسال شدند)
-lobby_active = False     # وقتی لابی فعال است (انتخاب سناریو و گرداننده)
-turn_order = []             # ترتیب نوبت‌ها
-current_turn_index = 0      # اندیس نوبت فعلی
-current_turn_message_id = None  # پیام پین شده برای نوبت
-turn_timer_task = None      # تسک تایمر نوبت
-player_slots = {}  # {slot_number: user_id}
-challenge_requests = {}  
-pending_challenges = {}
-active_challenger_seats = set()
-challenge_mode = False      # آیا الان در حالت نوبت چالش هستیم؟
-paused_main_player = None   # اگر چالش "قبل" ثبت شد، اینجا id نوبت اصلی ذخیره می‌شود تا بعد از چالش resume شود
-paused_main_duration = None # (اختیاری) مدت زمان نوبت اصلی برای resume — معمولا 120
-DEFAULT_TURN_DURATION = 120  # مقدار پیش‌فرض نوبت اصلی (در صورت تمایل تغییر بده)
-challenges = {}  # {player_id: {"type": "before"/"after", "challenger": user_id}}
-challenge_active = True
-post_challenge_advance = False   # وقتی اجرای چالش 'بعد' باشه، بعد از چالش به نوبت بعدی می‌رویم
-
 # =========================
 # مدیریت چند بازی (Global)
 # =========================
 # نگهداری اطلاعات بازی‌ها به ازای هر گروه
-games = {}  # { group_id: {"players": {}, "player_slots": {}, "reserves": {}, "eliminated": {}, "moderator": None, "admins": set(), "lobby_message_id": None, ... } }
+games = {}  
+# { group_id: { "players": {}, "player_slots": {}, "reserves": {}, "eliminated": {}, ... } }
 
 def ensure_game_entry(group_id):
     """ایجاد یا برگشت ورودی بازی برای یک گروه"""
     if group_id not in games:
         games[group_id] = {
-            "players": {},          # {user_id: name}
-            "player_slots": {},     # {seat: user_id}
-            "reserves": {},         # {user_id: name}
-            "eliminated": {},       # {user_id: name}
-            "moderator": None,      # user_id گرداننده (اگر تعیین شده)
-            "admins": set(),        # set of admin ids in that group
+            "players": {},              # {user_id: name}
+            "player_slots": {},         # {seat: user_id}
+            "reserves": {},             # {user_id: name}
+            "eliminated": {},           # {user_id: name}
+            "moderator": None,          # user_id گرداننده (اگر تعیین شده)
+            "admins": set(),            # set of admin ids in that group
             "lobby_message_id": None,
             "game_running": False,
-            # هر فیلد دیگه‌ای که قبلاً به صورت global داشتی می‌تونی اینجا بذاری
+
+            # مدیریت سناریو
+            "selected_scenario": None,  # سناریوی انتخابی
+            "scenarios": {},            # لیست سناریوها
+
+            # پیام‌ها
+            "game_message_id": None,
+            "group_chat_id": None,
+            "lobby_active": False,      # وقتی لابی فعال است (انتخاب سناریو و گرداننده)
+
+            # نوبت‌ها
+            "turn_order": [],           # ترتیب نوبت‌ها
+            "current_turn_index": 0,    # اندیس نوبت فعلی
+            "current_turn_message_id": None,  
+            "turn_timer_task": None,    
+
+            # چالش‌ها
+            "challenge_requests": {},  
+            "pending_challenges": {},
+            "active_challenger_seats": set(),
+            "challenge_mode": False,    
+
+            # توقف و ادامه
+            "paused_main_player": None, 
+            "paused_main_duration": None, 
+            "DEFAULT_TURN_DURATION": 120,  
+
+            # وضعیت چالش
+            "challenges": {},  
+            "challenge_active": True,
+            "post_challenge_advance": False   
         }
     return games[group_id]
+
+
     
 def extract_group_id_from_callback(callback):
     """
