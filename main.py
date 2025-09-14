@@ -49,6 +49,45 @@ challenges = {}  # {player_id: {"type": "before"/"after", "challenger": user_id}
 challenge_active = True
 post_challenge_advance = False   # وقتی اجرای چالش 'بعد' باشه، بعد از چالش به نوبت بعدی می‌رویم
 
+# =========================
+# مدیریت چند بازی (Global)
+# =========================
+# نگهداری اطلاعات بازی‌ها به ازای هر گروه
+games = {}  # { group_id: {"players": {}, "player_slots": {}, "reserves": {}, "eliminated": {}, "moderator": None, "admins": set(), "lobby_message_id": None, ... } }
+
+def ensure_game_entry(group_id):
+    """ایجاد یا برگشت ورودی بازی برای یک گروه"""
+    if group_id not in games:
+        games[group_id] = {
+            "players": {},          # {user_id: name}
+            "player_slots": {},     # {seat: user_id}
+            "reserves": {},         # {user_id: name}
+            "eliminated": {},       # {user_id: name}
+            "moderator": None,      # user_id گرداننده (اگر تعیین شده)
+            "admins": set(),        # set of admin ids in that group
+            "lobby_message_id": None,
+            "game_running": False,
+            # هر فیلد دیگه‌ای که قبلاً به صورت global داشتی می‌تونی اینجا بذاری
+        }
+    return games[group_id]
+    
+def extract_group_id_from_callback(callback):
+    """
+    الگوها:
+      - در پیوی: callback.data ممکنه 'action_{group_id}' یا 'action_{group_id}_{other}'
+      - در گروه: callback.data ممکنه فقط 'action' و گروه را از callback.message.chat.id می‌گیریم
+    """
+    data = callback.data or ""
+    parts = data.split("_")
+    if len(parts) >= 2 and parts[1].isdigit():
+        try:
+            return int(parts[1])
+        except:
+            pass
+    # fallback: گروه از محل پیام (اگر از گروه اومده باشه)
+    return callback.message.chat.id    
+
+
 #=======================
 # داده های ریست در شروع روز
 #=======================
@@ -199,41 +238,351 @@ def turn_keyboard(seat, is_challenge=False):
 @dp.message_handler(commands=["start"])
 async def start_cmd(message: types.Message):
     if message.chat.type == "private":
-        # منوی پیوی ربات
         kb = InlineKeyboardMarkup(row_width=1)
         kb.add(InlineKeyboardButton("🎮 بازی جدید", callback_data="new_game"))
-        
-        # فقط مدیر ربات این دو دکمه را می‌بیند
-        if message.from_user.id == moderator_id:
-            kb.add(InlineKeyboardButton("🛠 مدیریت بازی", callback_data="manage_game"))
-            kb.add(InlineKeyboardButton("⚙ مدیریت سناریو", callback_data="manage_scenario"))
-
+        # دکمه مدیریت بازی فقط برای مدیران (ادمین‌های ثبت‌شده) و گرداننده‌ها نمایش می‌یابد.
+        # اینجا نمایش فقط به خودِ کاربر بستگی داره؛ واقعاً بررسی گروه‌ها در manage_game انجام میشه.
+        kb.add(InlineKeyboardButton("🛠 مدیریت بازی", callback_data="manage_game"))
+        kb.add(InlineKeyboardButton("⚙ مدیریت سناریو", callback_data="manage_scenario"))
         kb.add(InlineKeyboardButton("📚 راهنما", callback_data="help"))
-
         await message.reply("📋 منوی ربات:", reply_markup=kb)
-
     else:
-        # منوی گروه همان منوی اصلی گروه
-        kb = main_menu_keyboard()  # همان منوی قبلی گروه
+        # برای گروه همان منوی گروه قبلی را نمایش بده (بدون تغییر)
+        kb = main_menu_keyboard()  # فرض بر این است تو این تابع منوی گروه را می‌سازی
         await message.reply("🏠 منوی اصلی گروه:", reply_markup=kb)
 
 
-@dp.callback_query_handler(lambda c: c.data == "new_game")
-async def start_game(callback: types.CallbackQuery):
-    global group_chat_id, lobby_active, admins, lobby_message_id
+    group_chat_id = callback.message.chat.id
+    admins = {member.user.id for member in await bot.get_chat_administrators(group_chat_id)}
 
-    # فقط گروه: شروع لابی
-    if callback.message.chat.type != "private":
-        group_chat_id = callback.message.chat.id
-        lobby_active = True    # فقط لابی فعال، بازی هنوز شروع نشده
-        admins = {member.user.id for member in await bot.get_chat_administrators(group_chat_id)}
+    games[group_chat_id] = {
+        "players": [],      # بازیکنان حاضر
+        "reserves": [],     # بازیکنان رزرو
+        "eliminated": [],   # بازیکنان حذف‌شده
+        "moderator": callback.from_user.id,  # فعلاً کسی که بازی رو شروع کرده
+        "admins": admins
+    }
 
-        msg = await callback.message.reply(
-            "🎮 بازی مافیا فعال شد!\nلطفا سناریو و گرداننده را انتخاب کنید:",
-            reply_markup=game_menu_keyboard()
-        )
+    msg = await callback.message.reply(
+        "🎮 بازی مافیا فعال شد!\nلطفا سناریو و گرداننده را انتخاب کنید:",
+        reply_markup=game_menu_keyboard()
+    )
+
         lobby_message_id = msg.message_id
 
+    await callback.answer()
+
+#=============================
+# شروع بازی
+#=============================
+@dp.callback_query_handler(lambda c: c.data == "new_game")
+async def start_game(callback: types.CallbackQuery):
+    group_id = callback.message.chat.id
+    # ایجاد/اطمینان از ورودی بازی برای این گروه
+    g = ensure_game_entry(group_id)
+
+    # ذخیره admins و وضعیت لابی
+    g["admins"] = {member.user.id for member in await bot.get_chat_administrators(group_id)}
+    g["lobby_message_id"] = callback.message.message_id  # یا پیام جدیدی که میفرستی
+    g["game_running"] = False  # تا وقتی پخش نقش نشده
+
+    # پیام لابی/منوی بازی در گروه — از game_menu_keyboard استفاده کن
+    msg = await callback.message.reply(
+        "🎮 بازی مافیا فعال شد!\nلطفا سناریو و گرداننده را انتخاب کنید:",
+        reply_markup=game_menu_keyboard()
+    )
+    g["lobby_message_id"] = msg.message_id
+    await callback.answer()
+
+#=============================
+# ای پی آی داخلی
+#=============================
+def get_game(group_id):
+    return games.get(group_id)
+
+def add_player_to_game(group_id, user_id, name, seat=None):
+    g = ensure_game_entry(group_id)
+    g["players"][user_id] = name
+    if seat is not None:
+        g["player_slots"][seat] = user_id
+
+def remove_player_from_game(group_id, user_id):
+    g = ensure_game_entry(group_id)
+    # حذف از players و player_slots
+    g["players"].pop(user_id, None)
+    # remove from slots
+    for s,u in list(g["player_slots"].items()):
+        if u == user_id:
+            del g["player_slots"][s]
+    # اضافه به eliminated
+    g["eliminated"][user_id] = "نام_قبلی"  # یا name اگر داری
+
+#=============================
+# حذف بازیکن
+#=============================
+@dp.callback_query_handler(lambda c: c.data.startswith("remove"))
+async def remove_player_handler(callback: types.CallbackQuery):
+    # استخراج group_id: اگر callback.data الگو 'remove_{group_id}' باشد از آن استفاده کن
+    data = callback.data
+    if "_" in data and data.split("_",1)[1].isdigit():
+        group_id = int(data.split("_",1)[1])
+    else:
+        group_id = callback.message.chat.id
+
+    g = get_game(group_id)
+    if not g:
+        await callback.answer("❌ بازی فعالی برای این گروه یافت نشد.", show_alert=True)
+        return
+
+    # نمایش لیست بازیکنان حاضر (keyboard) برای انتخاب حذف
+    kb = InlineKeyboardMarkup(row_width=2)
+    for uid, name in g["players"].items():
+        kb.add(InlineKeyboardButton(name, callback_data=f"do_remove_{group_id}_{uid}"))
+    kb.add(InlineKeyboardButton("⬅️ بازگشت", callback_data="manage_game"))
+    await callback.message.edit_text("❌ یک بازیکن را برای حذف انتخاب کنید:", reply_markup=kb)
+    await callback.answer()
+
+@dp.callback_query_handler(lambda c: c.data.startswith("do_remove_"))
+async def do_remove_player(callback: types.CallbackQuery):
+    parts = callback.data.split("_")
+    # do_remove_{group_id}_{user_id}
+    if len(parts) < 3:
+        await callback.answer("❌ دادهٔ نامعتبر.", show_alert=True)
+        return
+    group_id = int(parts[1])
+    user_id = int(parts[2])
+
+    g = get_game(group_id)
+    if not g:
+        await callback.answer("❌ بازی پیدا نشد.", show_alert=True)
+        return
+
+    # فقط گرداننده اجازه حذف دارد
+    if callback.from_user.id != g.get("moderator"):
+        await callback.answer("❌ فقط گرداننده می‌تواند حذف کند.", show_alert=True)
+        return
+
+    # انجام حذف (استفاده از helper)
+    name = g["players"].get(user_id)
+    remove_player_from_game(group_id, user_id)
+    g["eliminated"][user_id] = name or "نام‌ناشناخته"
+
+    await callback.message.edit_text(f"❌ بازیکن {name} حذف شد.", reply_markup=InlineKeyboardMarkup().add(InlineKeyboardButton("⬅️ بازگشت", callback_data=f"manage_{group_id}")))
+    await callback.answer()
+#=============================
+# جایگزین
+#=============================
+# نمایش رزروها
+@dp.callback_query_handler(lambda c: c.data.startswith("replace"))
+async def start_replace(callback: types.CallbackQuery):
+    group_id = extract_group_id_from_callback(callback)
+    g = get_game(group_id)
+    kb = InlineKeyboardMarkup()
+    for uid, name in g["reserves"].items():
+        kb.add(InlineKeyboardButton(name, callback_data=f"select_reserve_{group_id}_{uid}"))
+    kb.add(InlineKeyboardButton("⬅️ بازگشت", callback_data=f"manage_{group_id}"))
+    await callback.message.edit_text("🔄 یک بازیکن از رزرو انتخاب کن:", reply_markup=kb)
+    await callback.answer()
+
+# انتخاب رزرو -> نمایش بازیکنان حاضر
+@dp.callback_query_handler(lambda c: c.data.startswith("select_reserve_"))
+async def select_reserve(callback: types.CallbackQuery):
+    _, group_str, reserve_uid_str = callback.data.split("_", 2)
+    group_id = int(group_str); reserve_uid = int(reserve_uid_str)
+    g = get_game(group_id)
+    kb = InlineKeyboardMarkup()
+    for uid, name in g["players"].items():
+        kb.add(InlineKeyboardButton(name, callback_data=f"do_replace_{group_id}_{reserve_uid}_{uid}"))
+    kb.add(InlineKeyboardButton("⬅️ بازگشت", callback_data=f"replace_{group_id}"))
+    await callback.message.edit_text("🔄 به چه بازیکنی می‌خواهید جایگزین کنید؟", reply_markup=kb)
+    await callback.answer()
+
+# انجام جایگزینی
+@dp.callback_query_handler(lambda c: c.data.startswith("do_replace_"))
+async def do_replace(callback: types.CallbackQuery):
+    parts = callback.data.split("_")
+    # do_replace_{group_id}_{reserve_uid}_{target_uid}
+    group_id, reserve_uid, target_uid = int(parts[1]), int(parts[2]), int(parts[3])
+    g = get_game(group_id)
+    # حرکت‌ها: reserve -> players, target -> eliminated
+    reserve_name = g["reserves"].pop(reserve_uid, None)
+    if not reserve_name:
+        await callback.answer("❌ بازیکن رزرو موجود نیست.", show_alert=True); return
+    # پیدا کردن صندلی هدف و جابجایی
+    for seat, uid in list(g["player_slots"].items()):
+        if uid == target_uid:
+            g["player_slots"][seat] = reserve_uid
+            break
+    g["players"][reserve_uid] = reserve_name
+    removed_name = g["players"].pop(target_uid, None)
+    if removed_name:
+        g["eliminated"][target_uid] = removed_name
+
+    await callback.message.edit_text(f"🔄 جایگزینی انجام شد: {reserve_name} جایگزین {removed_name} شد.", reply_markup=InlineKeyboardMarkup().add(InlineKeyboardButton("⬅️ بازگشت", callback_data=f"manage_{group_id}")))
+    await callback.answer()
+
+
+#=============================
+# ورود به مدیریت بازی از پیوی
+#=============================
+@dp.callback_query_handler(lambda c: c.data == "manage_game")
+async def manage_game(callback: types.CallbackQuery):
+    user_id = callback.from_user.id
+
+    # پیدا کردن گروه‌هایی که این کاربر مدیر/گردان هست
+    user_games = [
+        gid for gid, g in games.items()
+        if (g.get("moderator") == user_id) or (user_id in g.get("admins", set()))
+    ]
+
+    if not user_games:
+        await callback.message.answer("❌ شما مدیر یا گردانندهٔ هیچ بازی فعالی نیستید.")
+        await callback.answer()
+        return
+
+    if len(user_games) == 1:
+        # فقط یک گروه: مستقیم نمایش منوی مدیریت همان گروه
+        await show_manage_menu_private(callback, user_games[0])
+    else:
+        # چند گروه: نمایش لیست برای انتخاب
+        kb = InlineKeyboardMarkup()
+        for gid in user_games:
+            kb.add(InlineKeyboardButton(f"🎲 گروه {gid}", callback_data=f"select_group_{gid}"))
+        kb.add(InlineKeyboardButton("⬅️ بازگشت", callback_data="back_to_menu"))
+        await callback.message.edit_text("📋 گروه مورد نظر را انتخاب کنید:", reply_markup=kb)
+    await callback.answer()
+
+
+#=======================
+# هندلر انتخاب گروه
+#=======================
+@dp.callback_query_handler(lambda c: c.data.startswith("select_group_"))
+async def select_group(callback: types.CallbackQuery):
+    group_id = int(callback.data.split("_")[2])
+    user_id = callback.from_user.id
+
+    if group_id not in games:
+        await callback.message.reply("❌ این گروه دیگر بازی فعالی ندارد.")
+        return
+
+    await show_manage_menu(callback.message, group_id, user_id)
+
+
+#=======================
+# تابع مدیریت گروه
+#=======================
+async def show_manage_menu_private(callback_or_message, group_id):
+    """
+    callback_or_message: می‌تواند یک CallbackQuery (معمولاً callback) یا Message باشد
+    این تابع منوی مدیریت را در پیوی کاربر نمایش می‌دهد (edit_text اگر callback باشد، و reply اگر message باشد).
+    """
+    # تشخیص کاربر و داده‌ها
+    if isinstance(callback_or_message, types.CallbackQuery):
+        user_id = callback_or_message.from_user.id
+        target = callback_or_message.message
+    else:
+        user_id = callback_or_message.from_user.id
+        target = callback_or_message
+
+    g = games.get(group_id)
+    if not g:
+        await target.reply("❌ بازی‌ای برای این گروه فعال نیست.")
+        return
+
+    # ساخت کیبورد بر اساس نقش (گرداننده یا مدیر)
+    kb = InlineKeyboardMarkup(row_width=2)
+    # گزینه‌هایی که همهٔ مدیرها باید ببینند
+    kb.add(InlineKeyboardButton("🔄 جایگزین", callback_data=f"replace_{group_id}"))
+    kb.add(InlineKeyboardButton("🛑 لغو بازی", callback_data=f"cancel_{group_id}"))
+
+    # فقط گرداننده گزینه‌های تکمیلی را می‌بیند
+    if user_id == g.get("moderator"):
+        kb.add(InlineKeyboardButton("❌ حذف بازیکن", callback_data=f"remove_{group_id}"))
+        kb.add(InlineKeyboardButton("🎂 تولد بازیکن", callback_data=f"revive_{group_id}"))
+        kb.add(InlineKeyboardButton("🔇 سکوت بازیکن", callback_data=f"mute_{group_id}"))
+        kb.add(InlineKeyboardButton("🔊 حذف سکوت", callback_data=f"unmute_{group_id}"))
+        kb.add(InlineKeyboardButton("⚔ وضعیت چالش", callback_data=f"challenge_{group_id}"))
+        kb.add(InlineKeyboardButton("📜 لیست نقش‌ها", callback_data=f"roles_{group_id}"))
+        kb.add(InlineKeyboardButton("📩 ارسال دوباره نقش‌ها", callback_data=f"resend_roles_{group_id}"))
+
+    kb.add(InlineKeyboardButton("⬅️ بازگشت", callback_data="back_to_menu"))
+
+    # نمایش یا ویرایش در پیوی
+    if isinstance(callback_or_message, types.CallbackQuery):
+        await callback_or_message.message.edit_text("🛠 منوی مدیریت بازی:", reply_markup=kb)
+    else:
+        await callback_or_message.reply("🛠 منوی مدیریت بازی:", reply_markup=kb)
+
+#=======================
+# تابع بازگشت به منو
+#=======================
+@dp.callback_query_handler(lambda c: c.data == "back_to_menu")
+async def back_to_menu(callback: types.CallbackQuery):
+    # منوی پیوی اصلی
+    await callback.message.edit_text("📋 منوی ربات:", reply_markup=main_menu_keyboard_private(callback.from_user.id))
+    await callback.answer()
+    
+#============================
+# تایع ساخت منو پیوی
+#============================
+def main_menu_keyboard_private(user_id: int):
+    kb = InlineKeyboardMarkup(row_width=1)
+    kb.add(InlineKeyboardButton("🎮 بازی جدید", callback_data="new_game"))
+    kb.add(InlineKeyboardButton("🛠 مدیریت بازی", callback_data="manage_game"))
+    kb.add(InlineKeyboardButton("⚙ مدیریت سناریو", callback_data="manage_scenario"))
+    kb.add(InlineKeyboardButton("📚 راهنما", callback_data="help"))
+    return kb
+
+#============================
+# تست حذف
+#============================
+@dp.callback_query_handler(lambda c: c.data.startswith("do_remove_"))
+async def do_remove_player(callback: types.CallbackQuery):
+    parts = callback.data.split("_")
+    # do_remove_{group_id}_{user_id}
+    if len(parts) < 3:
+        await callback.answer("❌ دادهٔ نامعتبر.", show_alert=True)
+        return
+    group_id = int(parts[1])
+    user_id = int(parts[2])
+
+    g = get_game(group_id)
+    if not g:
+        await callback.answer("❌ بازی پیدا نشد.", show_alert=True)
+        return
+
+    # فقط گرداننده اجازه حذف دارد
+    if callback.from_user.id != g.get("moderator"):
+        await callback.answer("❌ فقط گرداننده می‌تواند حذف کند.", show_alert=True)
+        return
+
+    # انجام حذف (استفاده از helper)
+    name = g["players"].get(user_id)
+    remove_player_from_game(group_id, user_id)
+    g["eliminated"][user_id] = name or "نام‌ناشناخته"
+
+    await callback.message.edit_text(f"❌ بازیکن {name} حذف شد.", reply_markup=InlineKeyboardMarkup().add(InlineKeyboardButton("⬅️ بازگشت", callback_data=f"manage_{group_id}")))
+    await callback.answer()
+
+
+#=======================
+# لغو بازی
+#=======================
+@dp.callback_query_handler(lambda c: c.data.startswith("cancel_"))
+async def cancel_game(callback: types.CallbackQuery):
+    group_id = int(callback.data.split("_", 1)[1])
+    if group_id in games:
+        # فقط مدیران/گرداننده بتوانند لغو کنند
+        user_id = callback.from_user.id
+        if (user_id != games[group_id].get("moderator")) and (user_id not in games[group_id].get("admins", set())):
+            await callback.answer("❌ شما اجازه لغو این بازی را ندارید.", show_alert=True)
+            return
+
+        # پاکسازی داده‌ها (یا هر عملیات تکمیلی که نیاز داری)
+        del games[group_id]
+        await callback.message.edit_text("🗑 بازی لغو شد و اطلاعات پاک گردید.")
+    else:
+        await callback.answer("❌ بازی‌ای یافت نشد.", show_alert=True)
     await callback.answer()
 
 
