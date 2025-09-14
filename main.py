@@ -1341,54 +1341,64 @@ async def head_set(callback: types.CallbackQuery):
 # ======================
 # شروع بازی و نوبت اول
 # ======================
-async def start_turn(seat, duration=DEFAULT_TURN_DURATION, is_challenge=False):
+async def start_turn(group_id, seat, duration=None, is_challenge=False):
     """
-    شروع نوبت برای یک seat (صندلی). این تابع:
-    - پیام نوبت را در گروه می‌فرستد و پین می‌کند
-    - کیبورد مناسب را می‌سازد
-    - تایمر زنده را با countdown ایجاد می‌کند
+    شروع نوبت یک بازیکن در بازی مشخص (group_id)
+    seat = شماره صندلی بازیکن
+    duration = مدت نوبت (در صورت None شدن از مقدار پیش‌فرض گرفته می‌شود)
+    is_challenge = آیا این نوبت به عنوان چالش اجرا می‌شود؟
     """
-    global current_turn_message_id, turn_timer_task, challenge_mode
+    game = games[group_id]  # دسترسی به داده‌های بازی
 
-    if not group_chat_id:
+    # اطمینان از وجود بازیکن در صندلی
+    if seat not in game["player_slots"]:
+        logging.warning(f"Seat {seat} در بازی {group_id} بازیکن ندارد.")
         return
 
-    # seat باید در player_slots باشد
-    if seat not in player_slots:
-        await bot.send_message(group_chat_id, f"⚠️ صندلی {seat} بازیکنی ندارد.")
-        return
+    player_id = game["player_slots"][seat]
+    player_name = game["players"].get(player_id, "ناشناس")
 
-    user_id = player_slots[seat]
-    player_name = players.get(user_id, "بازیکن")
-    mention = f"<a href='tg://user?id={user_id}'>{html.escape(str(player_name))}</a>"
+    # مدت زمان نوبت
+    if duration is None:
+        duration = game["DEFAULT_TURN_DURATION"]
 
-    # حالت چالش را تنظیم کن
-    challenge_mode = bool(is_challenge)
+    # اگر تسک تایمر قبلی هنوز فعاله، متوقفش کن
+    if game["turn_timer_task"]:
+        game["turn_timer_task"].cancel()
 
-    # unpin پیام قبلی اگر لازم
-    if current_turn_message_id:
+    # ساخت پیام نوبت
+    text = f"🎙 نوبت {player_name} (صندلی {seat})"
+    if is_challenge:
+        text += "\n⚔ این نوبت در حالت چالش است!"
+
+    try:
+        # اگر پیام نوبت قبلی وجود داره، ویرایشش کن
+        if game["current_turn_message_id"]:
+            await bot.edit_message_text(
+                chat_id=group_id,
+                message_id=game["current_turn_message_id"],
+                text=text
+            )
+        else:
+            # در غیر این صورت پیام جدید بفرست
+            msg = await bot.send_message(group_id, text)
+            game["current_turn_message_id"] = msg.message_id
+    except Exception as e:
+        logging.exception(f"خطا در ارسال پیام نوبت در گروه {group_id}: {e}")
+        msg = await bot.send_message(group_id, text)
+        game["current_turn_message_id"] = msg.message_id
+
+    # راه‌اندازی تایمر برای پایان نوبت
+    async def turn_timer():
         try:
-            await bot.unpin_chat_message(group_chat_id, current_turn_message_id)
-        except:
+            await asyncio.sleep(duration)
+            # بعد از پایان زمان، نوبت بعدی رو شروع کن
+            await advance_turn(group_id)
+        except asyncio.CancelledError:
             pass
 
-    text = f"⏳ {duration//60:02d}:{duration%60:02d}\n🎙 نوبت صحبت {mention} است. ({duration} ثانیه)"
-    msg = await bot.send_message(group_chat_id, text, parse_mode="HTML", reply_markup=turn_keyboard(seat, is_challenge))
+    game["turn_timer_task"] = asyncio.create_task(turn_timer())
 
-    # تلاش برای پین کردن پیام جدید (اختیاری)
-    try:
-        await bot.pin_chat_message(group_chat_id, msg.message_id, disable_notification=True)
-    except:
-        pass
-
-    current_turn_message_id = msg.message_id
-
-    # لغو تایمر قبلی
-    if turn_timer_task and not turn_timer_task.done():
-        turn_timer_task.cancel()
-
-    # راه‌اندازی تایمر (task)
-    turn_timer_task = asyncio.create_task(countdown(seat, duration, msg.message_id, is_challenge))
 
 # ======================
 # هندلر دکمه شروع دور
