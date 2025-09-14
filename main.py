@@ -43,6 +43,7 @@ def ensure_game_entry(group_id):
             # مدیریت سناریو
             "selected_scenario": None,  # سناریوی انتخابی
             "scenarios": {},            # لیست سناریوها
+            "scenarios": load_scenarios(),   # 🔹 بارگذاری سناریوها اینجا
 
             # پیام‌ها
             "game_message_id": None,
@@ -160,20 +161,11 @@ def reset_round_data():
 #  لود سناریوها
 # ======================
 def load_scenarios():
-    try:
-        with open("scenarios.json", "r", encoding="utf-8") as f:
-            return json.load(f)
-    except FileNotFoundError:
-        return {
-            "سناریو کلاسیک": {"min_players": 5, "max_players": 10, "roles": ["مافیا", "مافیا", "شهروند", "شهروند", "شهروند"]},
-            "سناریو ویژه": {"min_players": 6, "max_players": 12, "roles": ["مافیا", "مافیا", "شهروند", "شهروند", "شهروند", "کارآگاه"]}
-        }
-
-def save_scenarios():
-    with open("scenarios.json", "w", encoding="utf-8") as f:
-        json.dump(scenarios, f, ensure_ascii=False, indent=2)
-
-scenarios = load_scenarios()
+    path = os.path.join(os.path.dirname(__file__), "scenarios.json")
+    if not os.path.exists(path):
+        return {}
+    with open(path, "r", encoding="utf-8") as f:
+        return json.load(f)  # خروجی dict یا list بر اساس ساختار فایل
 
 # ======================
 # کیبوردها
@@ -736,7 +728,6 @@ async def back_main(callback: types.CallbackQuery):
 # ======================
 # انتخاب سناریو و گرداننده
 # ======================
-
 @dp.callback_query_handler(lambda c: c.data.startswith("choose_scenario"))
 async def choose_scenario(callback: types.CallbackQuery):
     group_id = callback.message.chat.id if callback.message.chat.type in ["group", "supergroup"] else None
@@ -760,31 +751,23 @@ async def choose_scenario(callback: types.CallbackQuery):
         kb.add(InlineKeyboardButton(scen_name, callback_data=f"set_scenario_{group_id}_{scen_id}"))
 
     await callback.message.edit_text("📜 یک سناریو انتخاب کنید:", reply_markup=kb)
-
-@dp.callback_query_handler(lambda c: c.data.startswith("set_scenario_"))
-async def set_scenario(callback: types.CallbackQuery):
-    parts = callback.data.split("_", 3)  # set_scenario_groupid_scenid
-    if len(parts) < 3:
-        await callback.answer("❌ داده نامعتبر.", show_alert=True)
-        return
-
-    group_id = int(parts[2])
-    scen_id = parts[3] if len(parts) > 3 else None
-
+    
+@dp.callback_query_handler(lambda c: c.data.startswith("select_scenario_"))
+async def select_scenario(callback: types.CallbackQuery):
+    group_id = callback.message.chat.id
     game = ensure_game_entry(group_id)
 
-    if scen_id not in game["scenarios"]:
-        await callback.answer("❌ سناریوی انتخابی معتبر نیست.", show_alert=True)
+    scenario_key = callback.data.split("select_scenario_")[1]
+    scenario = game["scenarios"].get(scenario_key)
+
+    if not scenario:
+        await callback.answer("⚠️ سناریو نامعتبر است.", show_alert=True)
         return
 
-    # ذخیره در games
-    game["selected_scenario"] = scen_id
-    # sync به globals تا هندلرهای قدیمی هم ببینن
-    sync_globals_from_game(group_id)
+    game["selected_scenario"] = scenario_key
 
-    await callback.answer("✅ سناریو انتخاب شد.", show_alert=True)
-    await callback.message.edit_text(f"📜 سناریوی انتخاب‌شده: {game['scenarios'][scen_id]}")
-
+    await callback.message.edit_text(f"✅ سناریوی انتخابی: {scenario['name']}")
+    await callback.answer()
 
 #====================================================
 @dp.callback_query_handler(lambda c: c.data.startswith("choose_moderator"))
@@ -825,14 +808,16 @@ async def set_moderator(callback: types.CallbackQuery):
     if user_id not in game["admins"]:
         await callback.answer("❌ این کاربر مدیر گروه نیست.", show_alert=True)
         return
-
+        
+    member = await bot.get_chat_member(group_id, user_id)
+    moderator_name = member.user.full_name
     # ذخیره در games
     game["moderator"] = user_id
     # sync به globals
     sync_globals_from_game(group_id)
 
     await callback.answer("✅ گرداننده انتخاب شد.", show_alert=True)
-    await callback.message.edit_text(f"👤 گرداننده بازی: {user_id}")
+    await callback.message.edit_text(f"👤 گرداننده بازی: {moderator_name}")
 
 
 
