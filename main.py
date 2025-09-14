@@ -296,7 +296,7 @@ async def start_cmd(message: types.Message):
         await message.reply("🏠 منوی اصلی گروه:", reply_markup=kb)
 
 
-    group_chat_id = callback.message.chat.id
+    group_chat_id = message.chat.id
     admins = {member.user.id for member in await bot.get_chat_administrators(group_chat_id)}
 
     games[group_chat_id] = {
@@ -728,29 +728,34 @@ async def back_main(callback: types.CallbackQuery):
 # ======================
 # انتخاب سناریو و گرداننده
 # ======================
-@dp.callback_query_handler(lambda c: c.data.startswith("choose_scenario"))
+@dp.callback_query_handler(lambda c: c.data == "choose_scenario")
 async def choose_scenario(callback: types.CallbackQuery):
-    group_id = callback.message.chat.id if callback.message.chat.type in ["group", "supergroup"] else None
-    if not group_id:
-        await callback.answer("❌ این گزینه فقط در گروه فعال است.", show_alert=True)
-        return
-
+    group_id = callback.message.chat.id
     game = ensure_game_entry(group_id)
-    if not game["lobby_active"]:
-        await callback.answer("⚠️ هیچ بازی فعالی برای انتخاب سناریو وجود ندارد.", show_alert=True)
-        return
 
-    # اگر هنوز هیچ سناریویی ثبت نشده
+    # اگر سناریوها هنوز بارگذاری نشده باشند
+    if not game.get("scenarios"):
+        game["scenarios"] = load_scenarios()
+
     if not game["scenarios"]:
-        await callback.answer("⚠️ هیچ سناریویی تعریف نشده است.", show_alert=True)
+        await callback.answer("⚠️ هیچ سناریویی تعریف نشده.", show_alert=True)
         return
 
-    # ساخت دکمه‌ها
-    kb = InlineKeyboardMarkup()
-    for scen_id, scen_name in game["scenarios"].items():
-        kb.add(InlineKeyboardButton(scen_name, callback_data=f"set_scenario_{group_id}_{scen_id}"))
+    kb = InlineKeyboardMarkup(row_width=1)
+    # سناریوها را به دکمه تبدیل می‌کنیم
+    for key, scenario in game["scenarios"].items():
+        kb.add(
+            InlineKeyboardButton(
+                text=str(scenario.get("name", key)),
+                callback_data=f"select_scenario_{key}"
+            )
+        )
 
-    await callback.message.edit_text("📜 یک سناریو انتخاب کنید:", reply_markup=kb)
+    await callback.message.edit_text(
+        "📖 یک سناریو انتخاب کنید:",
+        reply_markup=kb
+    )
+    await callback.answer()
     
 @dp.callback_query_handler(lambda c: c.data.startswith("select_scenario_"))
 async def select_scenario(callback: types.CallbackQuery):
@@ -764,9 +769,12 @@ async def select_scenario(callback: types.CallbackQuery):
         await callback.answer("⚠️ سناریو نامعتبر است.", show_alert=True)
         return
 
+    # ذخیره سناریوی انتخابی در بازی
     game["selected_scenario"] = scenario_key
 
-    await callback.message.edit_text(f"✅ سناریوی انتخابی: {scenario['name']}")
+    await callback.message.edit_text(
+        f"✅ سناریوی انتخابی: {scenario.get('name', scenario_key)}"
+    )
     await callback.answer()
 
 #====================================================
