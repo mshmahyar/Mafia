@@ -947,19 +947,18 @@ async def choose_scenario(callback: types.CallbackQuery):
     if not game or not game.get("lobby_active"):
         await callback.answer("❌ هیچ بازی فعالی برای انتخاب سناریو وجود ندارد.", show_alert=True)
         return
-
-    kb = InlineKeyboardMarkup(row_width=1)
-    for scen in scenarios:
-        kb.add(InlineKeyboardButton(scen, callback_data=f"scenario_{group_id}_{scen}"))
-    await callback.message.edit_text("📝 یک سناریو انتخاب کنید:", reply_markup=kb)
-    await callback.answer()
-
+        
+kb = InlineKeyboardMarkup(row_width=1)
+for scen in scenarios:
+    safe_id = scen.replace(" ", "_")[:30]  # ساختن ID امن
+    kb.add(InlineKeyboardButton(scen, callback_data=f"scenario_{safe_id}"))
+await callback.message.edit_text("📝 یک سناریو انتخاب کنید:", reply_markup=kb)
+await callback.answer()
 
 @dp.callback_query_handler(lambda c: c.data.startswith("scenario_"))
 async def scenario_selected(callback: types.CallbackQuery):
-    parts = callback.data.split("_", 2)
-    group_id = int(parts[1])
-    scen = parts[2]
+    scen = callback.data.split("_", 1)[1]  # فقط بخش بعد از "scenario_" = اسم سناریو
+    group_id = callback.message.chat.id    # دیگه لازم نیست توی callback_data باشه
 
     game = games.get(group_id)
     if not game:
@@ -972,6 +971,7 @@ async def scenario_selected(callback: types.CallbackQuery):
         reply_markup=game_menu_keyboard()
     )
     await callback.answer()
+
 
 
 @dp.callback_query_handler(lambda c: c.data == "choose_moderator")
