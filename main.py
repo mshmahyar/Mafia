@@ -403,7 +403,9 @@ async def start_gameplay(callback: types.CallbackQuery):
     game["game_running"] = True
     game["lobby_active"] = False
 
-    await callback.message.edit_text("🔥 بازی شروع شد! موفق باشید 🎭")
+    group_id = callback.message.chat.id
+    await callback.message.edit_text("🟢 بازی شروع شد!", reply_markup=game_menu_keyboard(group_id))
+
 
 
 #=============================
@@ -966,10 +968,14 @@ async def scenario_selected(callback: types.CallbackQuery):
         return
 
     game["selected_scenario"] = scen
+    
+    group_id = callback.message.chat.id
     await callback.message.edit_text(
-        f"📝 سناریو انتخاب شد: {scen}\nحالا گرداننده را انتخاب کنید.",
-        reply_markup=game_menu_keyboard()
+        f"📝 سناریو انتخاب شد: {scen_key}\nحالا گرداننده را انتخاب کنید.",
+        reply_markup=game_menu_keyboard(group_id)
     )
+
+    
     await callback.answer()
 
 
@@ -1005,11 +1011,13 @@ async def moderator_selected(callback: types.CallbackQuery):
 
     game["moderator"] = mod_id
     member = await bot.get_chat_member(group_id, mod_id)
+    group_id = callback.message.chat.id
     await callback.message.edit_text(
-        f"🎩 گرداننده انتخاب شد: {member.user.full_name}\n"
-        f"حالا اعضا می‌توانند وارد بازی شوند یا انصراف دهند.",
-        reply_markup=join_menu()
+        f"👤 {moderator_name} به‌عنوان گرداننده انتخاب شد.",
+        reply_markup=join_menu(group_id)
     )
+
+    
     await callback.answer()
 
 
@@ -1040,7 +1048,8 @@ async def join_game_callback(callback: types.CallbackQuery):
 
     # افزودن بازیکن به بازی
     game["players"][user.id] = user.full_name
-    await callback.answer("✅ شما به بازی اضافه شدید!")
+    group_id = callback.message.chat.id
+    await callback.message.edit_text("✅ شما به بازی پیوستید.", reply_markup=join_menu(group_id))
     await update_lobby(group_id)
 
 
