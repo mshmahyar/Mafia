@@ -161,6 +161,20 @@ def reset_round_data(group_id: int):
 # ======================
 #  لود سناریوها
 # ======================
+SCENARIOS_FILE = os.path.join(os.path.dirname(__file__), "scenarios.json")
+
+try:
+    with open(SCENARIOS_FILE, "r", encoding="utf-8") as f:
+        scenarios = json.load(f)
+except FileNotFoundError:
+    print("⚠️ فایل سناریو پیدا نشد!")
+    scenarios = {}
+except json.JSONDecodeError as e:
+    print(f"⚠️ خطا در خواندن فایل سناریو: {e}")
+    scenarios = {}
+
+selected_scenario = None
+
 def load_scenarios():
     path = os.path.join(os.path.dirname(__file__), "scenarios.json")
     if not os.path.exists(path):
