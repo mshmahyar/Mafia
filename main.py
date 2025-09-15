@@ -9,6 +9,20 @@ from aiogram.utils import executor
 import html
 import commands
 
+
+# ======================
+# بارگذاری سناریوها
+# ======================
+SCENARIOS_FILE = os.path.join(os.path.dirname(__file__), "scenarios.json")
+
+scenarios = {}
+try:
+    with open(SCENARIOS_FILE, "r", encoding="utf-8") as f:
+        scenarios = json.load(f)
+    print("✅ سناریوها با موفقیت بارگذاری شدند:", list(scenarios.keys()))
+except Exception as e:
+    print(f"⚠️ خطا در خواندن فایل سناریو: {e}")
+
 # ======================
 # تنظیمات ربات
 # ======================
@@ -194,6 +208,22 @@ def main_menu_keyboard():
     )
     return kb
 
+# ساخت کیبورد
+kb = InlineKeyboardMarkup(row_width=5)
+
+# دکمه انتخاب سناریو
+if not selected_scenario:
+    kb.add(InlineKeyboardButton("📜 انتخاب سناریو", callback_data="choose_scenario"))
+
+# دکمه‌های انتخاب صندلی (بعد از انتخاب سناریو نمایش داده میشن)
+if selected_scenario:
+    max_players = len(scenarios[selected_scenario]["roles"])
+    for i in range(1, max_players + 1):
+        if i in player_slots:
+            player_name = players.get(player_slots[i], "❓")
+            kb.insert(InlineKeyboardButton(f"{i} ({player_name})", callback_data=f"slot_{i}"))
+        else:
+            kb.insert(InlineKeyboardButton(str(i), callback_data=f"slot_{i}"))
 
 def game_menu_keyboard(group_id: int):
     """منوی مخصوص یک بازی فعال"""
