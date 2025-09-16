@@ -51,6 +51,9 @@ DEFAULT_TURN_DURATION = 120  # مقدار پیش‌فرض نوبت اصلی (د�
 challenges = {}  # {player_id: {"type": "before"/"after", "challenger": user_id}}
 challenge_active = True
 post_challenge_advance = False   # وقتی اجرای چالش 'بعد' باشه، بعد از چالش به نوبت بعدی می‌رویم
+substitute_list = {}  # group_id: {user_id: {"name": name}}
+players_in_game = {}  # group_id: {seat_number: {"id": user_id, "name": name, "role": role}}
+removed_players = {}  # group_id: {seat_number: {"id": user_id, "name": name, "roles": []}}
 
 #=======================
 # داده های ریست در شروع روز
@@ -114,9 +117,34 @@ def join_menu():
         InlineKeyboardButton("❌ انصراف", callback_data="leave_game")
     )
     return kb
-#=========================
+# ======================
+# کیبورد پنل پیوی
+# ======================
+def main_panel_keyboard():
+    kb = InlineKeyboardMarkup(row_width=1)
+    kb.add(InlineKeyboardButton("🎮 مدیریت بازی", callback_data="manage_game"))
+    kb.add(InlineKeyboardButton("📜 مدیریت سناریو", callback_data="manage_scenario"))
+    kb.add(InlineKeyboardButton("❓ راهنما", callback_data="help"))
+    return kb
+
+# -----------------------------
+# منوی مدیریت بازی
+# -----------------------------
+def manage_game_keyboard(group_id: int):
+    kb = InlineKeyboardMarkup(row_width=1)
+    kb.add(InlineKeyboardButton("👥 لیست بازیکنان", callback_data="list_players"))
+    kb.add(InlineKeyboardButton("📤 ارسال نقش", callback_data="resend_roles"))
+    kb.add(InlineKeyboardButton("🗑 حذف بازیکن", callback_data="remove_player"))
+    kb.add(InlineKeyboardButton("🔄 جایگزین بازیکن", callback_data="replace_player"))
+    kb.add(InlineKeyboardButton("🎂 تولد بازیکن", callback_data="player_birthday"))
+    kb.add(InlineKeyboardButton("⚔ وضعیت چالش", callback_data="challenge_status"))
+    kb.add(InlineKeyboardButton("🚫 لغو بازی", callback_data=f"cancel_{group_id}"))
+    kb.add(InlineKeyboardButton("⬅️ بازگشت", callback_data="back_main"))
+    return kb
+
+# =========================
 # توابع کمکی
-#=========================
+# =========================
 # پیام موقتی
 async def send_temp_message(chat_id, text, delay=5, **kwargs):
     msg = await bot.send_message(chat_id, text, **kwargs)
@@ -196,6 +224,237 @@ def turn_keyboard(seat, is_challenge=False):
 
     return kb
 
+# =======================
+# دستورات پنل پیوی
+# =======================
+
+# =======================
+# وضعیت چالش
+# =======================
+@dp.callback_query_handler(lambda c: c.data == "challenge_status")
+async def challenge_status_pv(callback: types.CallbackQuery):
+    # فقط برای پیوی
+    if callback.message.chat.type != "private":
+        return  # اگر در گروه است، هندلر قبلی لابی اجرا شود
+    group_id = ...  # آیدی گروه مربوطه را از دیتابیس یا سیستم خود بگیرید
+    # پیام جدید در پیوی
+    await callback.message.answer(
+        "⚔ وضعیت چالش:",
+        reply_markup=InlineKeyboardMarkup().add(
+            InlineKeyboardButton("⚔ آف کردن چالش", callback_data=f"turn_off_challenge_{group_id}")
+        )
+    )
+    await callback.answer()
+#=======================
+# لیست بازیکنان
+#=======================
+async def list_players_pv(callback: types.CallbackQuery):
+    # اگر در گروه زده شد، هندلر اصلی لابی کار کند
+    if callback.message.chat.type != "private":
+        return
+
+    # گرفتن لیست بازیکنان از دیتابیس یا متغیر سراسری
+    # فرضا players = {seat_number: {"id": user_id, "name": name}}
+    players = get_players_for_group(callback.from_user.id)  # باید تابع خودت داشته باشی
+    if not players:
+        await callback.message.answer("⚠️ هیچ بازیکنی ثبت نشده است.")
+        await callback.answer()
+        return
+
+    # مرتب سازی بر اساس شماره صندلی
+    sorted_players = sorted(players.items(), key=lambda x: x[0])
+
+    # ساخت متن پیام با منشن
+    text = "👥 لیست بازیکنان:\n"
+    for seat, player in sorted_players:
+        text += f"{seat}. [{player['name']}](tg://user?id={player['id']})\n"
+
+    # ارسال پیام در پیوی
+    await callback.message.answer(text, parse_mode="Markdown")
+    await callback.answer()
+
+# ثبت هندلر در دیسپچر
+def register_player_list_handler(dp: Dispatcher):
+    dp.register_callback_query_handler(list_players_pv, lambda c: c.data == "list_players")
+#=======================
+# ارسال نقش ها
+#=======================
+async def send_roles_panel(callback: types.CallbackQuery, bot):
+    group_id = get_group_for_admin(callback.from_user.id)  # تابع خودت برای پیدا کردن گروه
+    players = players_in_game.get(group_id, {})
+
+    if not players:
+        await callback.message.answer("⚠️ هیچ بازیکنی ثبت نشده است.")
+        await callback.answer()
+        return
+
+    # 1️⃣ ارسال نقش به هر بازیکن در پیوی
+    for seat, player in players.items():
+        roles = ", ".join(player.get("roles", []))
+        text = f"🎭 نقش شما:\n{roles}\n\nشماره صندلی شما: {seat}"
+        try:
+            await bot.send_message(player["id"], text)
+        except Exception as e:
+            print(f"⚠️ خطا در ارسال نقش به {player['name']}: {e}")
+
+    # 2️⃣ ارسال لیست بازیکنان همراه نقش‌ها برای گرداننده
+    sorted_players = sorted(players.items(), key=lambda x: x[0])
+    text = "🎭 لیست بازیکنان و نقش‌ها:\n"
+    for seat, p in sorted_players:
+        roles = ", ".join(p.get("roles", []))
+        text += f"{seat}. [{p['name']}](tg://user?id={p['id']}) — {roles}\n"
+
+    await callback.message.answer(text, parse_mode="Markdown")
+    await callback.answer("✅ نقش‌ها ارسال شدند و لیست برای شما نمایش داده شد.")
+
+# ثبت هندلر
+def register_send_roles_handler(dp):
+    dp.register_callback_query_handler(
+        lambda c: send_roles_panel(c, dp.bot), 
+        lambda c: c.data == "resend_roles"
+    )
+#=======================
+# جایگزین بازیکن
+#=======================
+async def add_substitute(message: types.Message):
+    if message.text.strip() == "جایگزین":
+        group_id = message.chat.id
+        user_id = message.from_user.id
+        name = message.from_user.full_name
+
+        if group_id not in substitute_list:
+            substitute_list[group_id] = {}
+
+        substitute_list[group_id][user_id] = {"name": name}
+        await message.reply(f"✅ شما به لیست جایگزین اضافه شدید: {name}")
+
+# -----------------------------
+# نمایش لیست جایگزین برای گرداننده در پیوی
+# -----------------------------
+async def show_substitute_list(callback: types.CallbackQuery):
+    group_id = get_group_for_admin(callback.from_user.id)  # تابع خودت
+    subs = substitute_list.get(group_id, {})
+    if not subs:
+        await callback.message.answer("⚠️ لیست جایگزین خالی است.")
+        return
+
+    kb = InlineKeyboardMarkup(row_width=1)
+    for user_id, data in subs.items():
+        kb.add(InlineKeyboardButton(data["name"], callback_data=f"choose_sub_{user_id}_{group_id}"))
+
+    await callback.message.answer("👥 لیست جایگزین:", reply_markup=kb)
+
+# -----------------------------
+# نمایش بازیکنان فعلی بازی بعد از انتخاب جایگزین
+# -----------------------------
+async def choose_substitute(callback: types.CallbackQuery):
+    parts = callback.data.split("_")
+    sub_id = int(parts[2])
+    group_id = int(parts[3])
+    kb = InlineKeyboardMarkup(row_width=1)
+
+    current_players = players_in_game.get(group_id, {})
+    for seat, p in current_players.items():
+        kb.add(InlineKeyboardButton(f"{seat}. {p['name']}", callback_data=f"replace_{sub_id}_{seat}_{group_id}"))
+
+    await callback.message.answer("👤 بازیکن جایگزین، بازیکن فعلی را انتخاب کنید:", reply_markup=kb)
+
+# -----------------------------
+# جایگزینی بازیکن
+# -----------------------------
+async def replace_player(callback: types.CallbackQuery):
+    parts = callback.data.split("_")
+    sub_id = int(parts[1])
+    seat = int(parts[2])
+    group_id = int(parts[3])
+
+    sub_data = substitute_list[group_id].pop(sub_id, None)
+    if not sub_data:
+        await callback.message.answer("⚠️ خطا: جایگزین پیدا نشد.")
+        return
+
+    # نگهداری نقش قبلی
+    old_player = players_in_game[group_id][seat]
+    role = old_player["role"]
+
+    # جایگزینی
+    players_in_game[group_id][seat] = {"id": sub_id, "name": sub_data["name"], "role": role}
+
+    await callback.message.answer(f"✅ بازیکن {old_player['name']} با {sub_data['name']} جایگزین شد.")
+#=======================
+# حذف بازیکن
+#=======================
+async def remove_player_handler(callback: types.CallbackQuery):
+    group_id = get_group_for_admin(callback.from_user.id)
+    current_players = players_in_game.get(group_id, {})
+    if not current_players:
+        await callback.message.answer("⚠️ هیچ بازیکنی در بازی نیست.")
+        await callback.answer()
+        return
+
+    kb = InlineKeyboardMarkup(row_width=1)
+    for seat, p in current_players.items():
+        kb.add(InlineKeyboardButton(f"{seat}. {p['name']}", callback_data=f"remove_{seat}_{group_id}"))
+
+    await callback.message.answer("🗑 بازیکنی که می‌خواهید حذف کنید را انتخاب کنید:", reply_markup=kb)
+
+async def remove_player_confirm(callback: types.CallbackQuery):
+    parts = callback.data.split("_")
+    seat = int(parts[1])
+    group_id = int(parts[2])
+
+    player = players_in_game[group_id].pop(seat, None)
+    if not player:
+        await callback.message.answer("⚠️ بازیکن پیدا نشد.")
+        return
+
+    removed_players.setdefault(group_id, {})[seat] = player
+    await callback.message.answer(f"✅ بازیکن {player['name']} حذف شد و به لیست خارج شده‌ها منتقل شد.")
+#=======================
+# تولد بازیکن
+#=======================
+async def birthday_player_handler(callback: types.CallbackQuery):
+    group_id = get_group_for_admin(callback.from_user.id)
+    removed = removed_players.get(group_id, {})
+    if not removed:
+        await callback.message.answer("⚠️ هیچ بازیکنی در لیست خارج شده‌ها نیست.")
+        await callback.answer()
+        return
+
+    kb = InlineKeyboardMarkup(row_width=1)
+    for seat, p in removed.items():
+        kb.add(InlineKeyboardButton(f"{seat}. {p['name']}", callback_data=f"revive_{seat}_{group_id}"))
+
+    await callback.message.answer("🎂 بازیکنی که می‌خواهید بازگردانید را انتخاب کنید:", reply_markup=kb)
+
+async def birthday_player_confirm(callback: types.CallbackQuery):
+    parts = callback.data.split("_")
+    seat = int(parts[1])
+    group_id = int(parts[2])
+
+    player = removed_players[group_id].pop(seat, None)
+    if not player:
+        await callback.message.answer("⚠️ بازیکن پیدا نشد.")
+        return
+
+    players_in_game.setdefault(group_id, {})[seat] = player
+    await callback.message.answer(f"✅ بازیکن {player['name']} با همان شماره صندلی و نقش بازگردانده شد.")
+#========================
+# ثبت هندلر ها
+#========================
+def register_game_panel_handlers(dp: Dispatcher):
+    dp.register_callback_query_handler(lambda c: send_roles_panel(c, dp.bot), lambda c: c.data == "resend_roles")
+    dp.register_callback_query_handler(list_players_pv, lambda c: c.data == "list_players")
+    dp.register_callback_query_handler(show_substitute_list, lambda c: c.data == "replace_player")
+    dp.register_callback_query_handler(choose_substitute, lambda c: c.data.startswith("choose_sub_"))
+    dp.register_callback_query_handler(replace_player, lambda c: c.data.startswith("replace_"))
+    dp.register_callback_query_handler(challenge_status_pv, lambda c: c.data == "challenge_status")
+    dp.register_message_handler(add_substitute, lambda m: m.text.strip() == "جایگزین")
+    dp.register_callback_query_handler(remove_player_handler, lambda c: c.data == "remove_player")
+    dp.register_callback_query_handler(remove_player_confirm, lambda c: c.data.startswith("remove_"))
+    dp.register_callback_query_handler(birthday_player_handler, lambda c: c.data == "player_birthday")
+    dp.register_callback_query_handler(birthday_player_confirm, lambda c: c.data.startswith("revive_"))
+    
 # ======================
 # دستورات اصلی
 # ======================
