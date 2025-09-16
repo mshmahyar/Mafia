@@ -443,6 +443,7 @@ async def birthday_player_confirm(callback: types.CallbackQuery):
 # ثبت هندلر ها
 #========================
 def register_game_panel_handlers(dp: Dispatcher):
+    dp.register_callback_query_handler(manage_game_handler, lambda c: c.data == "manage_game")
     dp.register_callback_query_handler(lambda c: send_roles_panel(c, dp.bot), lambda c: c.data == "resend_roles")
     dp.register_callback_query_handler(list_players_pv, lambda c: c.data == "list_players")
     dp.register_callback_query_handler(show_substitute_list, lambda c: c.data == "replace_player")
