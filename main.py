@@ -176,6 +176,7 @@ async def manage_game_handler(callback: types.CallbackQuery):
         reply_markup=manage_game_keyboard(group_id)
     )
     await callback.answer()
+    
 
 
 # ======================
