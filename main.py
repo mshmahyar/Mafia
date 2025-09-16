@@ -71,6 +71,12 @@ def reset_round_data():
     post_challenge_advance = False
     pending_challenges = {}
 
+@dp.callback_query_handler()
+async def debug_all_callbacks(callback: types.CallbackQuery):
+    print("📌 CALLBACK DATA:", callback.data)
+    await callback.answer("📥 دریافت شد")
+    
+
 # ======================
 #  لود سناریوها
 # ======================
