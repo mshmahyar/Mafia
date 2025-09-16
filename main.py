@@ -959,24 +959,21 @@ async def choose_scenario(callback: types.CallbackQuery):
  
 @dp.callback_query_handler(lambda c: c.data.startswith("scenario_"))
 async def scenario_selected(callback: types.CallbackQuery):
-    scen = callback.data.split("_", 1)[1]  # فقط بخش بعد از "scenario_" = اسم سناریو
-    group_id = callback.message.chat.id    # دیگه لازم نیست توی callback_data باشه
+    scen_key = callback.data[len("scenario_"):]  # حذف prefix و گرفتن اسم سناریو
 
+    group_id = callback.message.chat.id
     game = games.get(group_id)
     if not game:
         await callback.answer("❌ بازی پیدا نشد.", show_alert=True)
         return
 
-    game["selected_scenario"] = scen
-    
-    group_id = callback.message.chat.id
+    game["selected_scenario"] = scen_key
     await callback.message.edit_text(
         f"📝 سناریو انتخاب شد: {scen_key}\nحالا گرداننده را انتخاب کنید.",
         reply_markup=game_menu_keyboard(group_id)
     )
-
-    
     await callback.answer()
+
 
 
 
@@ -1000,24 +997,21 @@ async def choose_moderator(callback: types.CallbackQuery):
 
 @dp.callback_query_handler(lambda c: c.data.startswith("moderator_"))
 async def moderator_selected(callback: types.CallbackQuery):
-    parts = callback.data.split("_", 2)
-    group_id = int(parts[1])
-    mod_id = int(parts[2])
+    moderator_id = int(callback.data[len("moderator_"):])
+    group_id = callback.message.chat.id
 
     game = games.get(group_id)
     if not game:
         await callback.answer("❌ بازی پیدا نشد.", show_alert=True)
         return
 
-    game["moderator"] = mod_id
-    member = await bot.get_chat_member(group_id, mod_id)
-    group_id = callback.message.chat.id
-    await callback.message.edit_text(
-        f"👤 {moderator_name} به‌عنوان گرداننده انتخاب شد.",
-        reply_markup=join_menu(group_id)
-    )
+    game["moderator"] = moderator_id
 
-    
+    await callback.message.edit_text(
+        f"👤 گرداننده انتخاب شد: <a href='tg://user?id={moderator_id}'>کاربر</a>\n\nبازیکنان حالا می‌توانند به لابی بپیوندند.",
+        reply_markup=join_menu(group_id),  # دکمه ورود به لابی
+        parse_mode="HTML"
+    )
     await callback.answer()
 
 
