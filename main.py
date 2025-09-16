@@ -224,7 +224,7 @@ async def start_cmd(message: types.Message):
 @dp.callback_query_handler(lambda c: c.data == "new_game")
 async def start_game(callback: types.CallbackQuery):
     if callback.message.chat.id != ALLOWED_GROUP_ID:
-    global group_chat_id, lobby_active, admins, lobby_message_id
+        global group_chat_id, lobby_active, admins, lobby_message_id
 
     # فقط گروه: شروع لابی
     if callback.message.chat.type != "private":
