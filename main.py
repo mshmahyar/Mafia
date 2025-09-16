@@ -462,23 +462,15 @@ def register_game_panel_handlers(dp: Dispatcher):
 @dp.message_handler(commands=["start"])
 async def start_cmd(message: types.Message):
     if message.chat.type == "private":
-        # منوی پیوی ربات
-        kb = InlineKeyboardMarkup(row_width=1)
-        kb.add(InlineKeyboardButton("🎮 بازی جدید", callback_data="new_game"))
-        
-        # فقط مدیر ربات این دو دکمه را می‌بیند
-        if message.from_user.id == moderator_id:
-            kb.add(InlineKeyboardButton("🛠 مدیریت بازی", callback_data="manage_game"))
-            kb.add(InlineKeyboardButton("⚙ مدیریت سناریو", callback_data="manage_scenario"))
-
-        kb.add(InlineKeyboardButton("📚 راهنما", callback_data="help"))
-
+        # استفاده از تابع آماده منو
+        kb = main_panel_keyboard()
         await message.reply("📋 منوی ربات:", reply_markup=kb)
 
     else:
         # منوی گروه همان منوی اصلی گروه
         kb = main_menu_keyboard()  # همان منوی قبلی گروه
         await message.reply("🏠 منوی اصلی گروه:", reply_markup=kb)
+
 
 @dp.callback_query_handler(lambda c: c.data == "new_game")
 async def start_game(callback: types.CallbackQuery):
