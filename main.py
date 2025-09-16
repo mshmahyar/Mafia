@@ -19,6 +19,9 @@ if not API_TOKEN:
 logging.basicConfig(level=logging.INFO)
 bot = Bot(token=API_TOKEN, parse_mode="HTML")
 dp = Dispatcher(bot)
+# فقط این گروه اجازه اجرای بازی داره
+ALLOWED_GROUP_ID = -1002356353761
+
 
 # ======================
 # متغیرهای سراسری
@@ -220,6 +223,7 @@ async def start_cmd(message: types.Message):
 
 @dp.callback_query_handler(lambda c: c.data == "new_game")
 async def start_game(callback: types.CallbackQuery):
+    if callback.message.chat.id != ALLOWED_GROUP_ID:
     global group_chat_id, lobby_active, admins, lobby_message_id
 
     # فقط گروه: شروع لابی
