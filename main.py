@@ -153,6 +153,24 @@ async def send_temp_message(chat_id, text, delay=5, **kwargs):
         await bot.delete_message(chat_id, msg.message_id)
     except:
         pass
+#--------++++
+# هندلر مدیریت بازی
+#------------
+# ======================
+# مدیریت بازی در پیوی
+# ======================
+async def manage_game_handler(callback: types.CallbackQuery):
+    # فقط در پیوی کار کنه
+    if callback.message.chat.type != "private":
+        return
+
+    group_id = group_chat_id  # یا اگر چند گروه داری باید با تابع پیدا کنی
+    await callback.message.edit_text(
+        "🎮 مدیریت بازی:",
+        reply_markup=manage_game_keyboard(group_id)
+    )
+    await callback.answer()
+
 
 # ======================
 # انتخاب / لغو انتخاب صندلی
