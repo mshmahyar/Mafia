@@ -220,13 +220,16 @@ async def start_cmd(message: types.Message):
         kb = main_menu_keyboard()  # همان منوی قبلی گروه
         await message.reply("🏠 منوی اصلی گروه:", reply_markup=kb)
 
-
 @dp.callback_query_handler(lambda c: c.data == "new_game")
 async def start_game(callback: types.CallbackQuery):
+    # محدودیت به گروه خاص
     if callback.message.chat.id != ALLOWED_GROUP_ID:
-        global group_chat_id, lobby_active, admins, lobby_message_id
+        await callback.answer("❌ این ربات فقط در گروه اصلی کار می‌کند.", show_alert=True)
+        return
 
-    # فقط گروه: شروع لابی
+    global group_chat_id, lobby_active, admins, lobby_message_id
+
+    # فقط در گروه: شروع لابی
     if callback.message.chat.type != "private":
         group_chat_id = callback.message.chat.id
         lobby_active = True    # فقط لابی فعال، بازی هنوز شروع نشده
@@ -239,7 +242,6 @@ async def start_game(callback: types.CallbackQuery):
         lobby_message_id = msg.message_id
 
     await callback.answer()
-
 
 # ======================
 # مدیریت سناریو
