@@ -71,14 +71,24 @@ def reset_round_data():
     post_challenge_advance = False
     pending_challenges = {}
 
+# ======================
+# 🎮 مدیریت بازی در پیوی
+# ======================
 @dp.callback_query_handler(lambda c: c.data == "manage_game")
 async def manage_game_handler(callback: types.CallbackQuery):
     if callback.message.chat.type != "private":
         await callback.answer("⚠️ این گزینه فقط در پیوی کار می‌کند.", show_alert=True)
         return
 
-    await callback.message.answer("🎮 منوی مدیریت بازی فعال شد ✅")
+    global group_chat_id
+    if not group_chat_id:
+        await callback.answer("🚫 هنوز هیچ بازی فعالی شروع نشده.", show_alert=True)
+        return
+
+    kb = manage_game_keyboard(group_chat_id)
+    await callback.message.answer("🎮 منوی مدیریت بازی:", reply_markup=kb)
     await callback.answer()
+    
 
     
 
