@@ -153,6 +153,7 @@ def main_menu_keyboard():
     kb = InlineKeyboardMarkup(row_width=1)
     kb.add(
         InlineKeyboardButton("🎮 بازی جدید", callback_data="new_game"),
+        InlineKeyboardButton("📝 لیست جدید", callback_data="new_list"),
         InlineKeyboardButton("⚙ مدیریت سناریو", callback_data="manage_scenarios"),
         InlineKeyboardButton("📖 راهنما", callback_data="help")
     )
@@ -298,9 +299,100 @@ def turn_keyboard(seat, is_challenge=False):
 
     return kb
 
+
+    list_settings = {
+        "scenario": None,
+        "god": None,
+        "seats": {},   # شماره صندلی → {"id":..., "name":...}
+    }
 # =======================
-# دستورات پنل پیوی
+# هندلر لیست جدید
 # =======================
+@dp.callback_query_handler(lambda c: c.data == "new_list")
+async def new_list_handler(callback: types.CallbackQuery):
+    kb = InlineKeyboardMarkup(row_width=1)
+    kb.add(InlineKeyboardButton("📜 سناریو", callback_data="choose_scenario"))
+    kb.add(InlineKeyboardButton("🙋‍♂️ گرداننده", callback_data="choose_god"))
+    await callback.message.edit_text("⚙️ تنظیمات لیست:", reply_markup=kb)
+    await callback.answer()
+    
+#=========================
+# انتخاب گرداننده
+#=========================
+@dp.callback_query_handler(lambda c: c.data == "choose_god")
+async def choose_god_handler(callback: types.CallbackQuery):
+    list_settings["god"] = callback.from_user.full_name
+    await callback.answer("✅ گرداننده ثبت شد.")
+
+#=========================
+# ساخت لیست
+#=========================
+@dp.callback_query_handler(lambda c: c.data == "create_list")
+async def create_list_handler(callback: types.CallbackQuery):
+    from persiantools.jdatetime import JalaliDate
+    today = JalaliDate.today().strftime("%Y/%m/%d")
+
+    scenario = list_settings.get("scenario") or "❌ انتخاب نشده"
+    god = list_settings.get("god") or "❌ انتخاب نشده"
+
+    text = f"""༄
+
+Mafia Nights
+
+Time : 21:00
+Date : {today}
+Scenario : {scenario}
+God : {god}
+
+◤◢◣◥◤◢◣◥◤◢◣◥◤◢◣◥◤◢◣◥
+"""
+
+    # ساخت جدول صندلی‌ها
+    seats = []
+    for i in range(1, 12):  # مثلا 11 نفر
+        player = list_settings["seats"].get(i)
+        if player:
+            name = player["name"]
+            seats.append(f"{i:02d} {name}")
+        else:
+            seats.append(f"{i:02d} ⬜ خالی")
+
+    text += "\n".join(seats) + "\n\n◤◢◣◥◤◢◣◥◤◢◣◥◤◢◣◥◤◢◣◥\n\n༄"
+
+    # کیبورد صندلی‌ها
+    kb = InlineKeyboardMarkup(row_width=5)
+    for i in range(1, 12):
+        if i in list_settings["seats"]:
+            label = f"✅ {i}"
+        else:
+            label = str(i)
+        kb.insert(InlineKeyboardButton(label, callback_data=f"seat_{i}"))
+
+    await callback.message.edit_text(text, reply_markup=kb, parse_mode="HTML")
+    await callback.answer()
+    
+#========================
+# رزرو در لیست
+#========================
+@dp.callback_query_handler(lambda c: c.data.startswith("seat_"))
+async def seat_handler(callback: types.CallbackQuery):
+    seat_num = int(callback.data.split("_")[1])
+    user_id = callback.from_user.id
+    name = callback.from_user.full_name
+
+    # اگر صندلی خالیه و کاربر هنوز صندلی نداره → انتخاب
+    if seat_num not in list_settings["seats"] and user_id not in [v["id"] for v in list_settings["seats"].values()]:
+        list_settings["seats"][seat_num] = {"id": user_id, "name": name}
+        await callback.answer("✅ صندلی شما رزرو شد.")
+    # اگر کاربر روی صندلی خودش دوباره زد → لغو
+    elif seat_num in list_settings["seats"] and list_settings["seats"][seat_num]["id"] == user_id:
+        del list_settings["seats"][seat_num]
+        await callback.answer("❌ رزرو شما لغو شد.")
+    else:
+        await callback.answer("⚠️ برای انتخاب صندلی جدید، ابتدا رزرو قبلی‌تان را لغو کنید.", show_alert=True)
+
+    # متن لیست رو دوباره بساز و پیام رو آپدیت کن
+    await create_list_handler(callback)
 
 # =======================
 # وضعیت چالش
@@ -1968,28 +2060,36 @@ async def text_commands_handler(message: types.Message):
     # -------------------
     # دستور "تگ" → همه بازیکنان در گروه
     # -------------------
-    if text == "تگ":
-        uids = get_group_player_ids(group_id)
-        if not uids:
-            await message.reply("👥 بازیکنی برای تگ کردن وجود ندارد.")
+    elif text == "تگ":
+        try:
+            members = await bot.get_chat_administrators(group_id)
+            # اول همه ادمین‌ها رو بگیریم تا بعداً حذفشون کنیم از لیست اعضا (اختیاری)
+            admin_ids = [admin.user.id for admin in members]
+        except Exception:
+            admin_ids = []
+
+        try:
+            # گرفتن لیست اعضا (این متد فقط روی بات‌هایی که مجوز full members دارن کار می‌کنه)
+            chat_members = await bot.get_chat(group_id)
+            # ⚠️ توجه: Bot API مستقیماً متدی برای گرفتن همه اعضای گروه نداره!
+            # معمولاً باید از db محلی یا via userbot / Telethon انجام بدی.
+            # برای ساده‌سازی، از players استفاده می‌کنیم که در بازی ذخیره شدن.
+            all_ids = list(players.keys())  # اگر players = {uid: name}
+        except Exception:
+            all_ids = list(players.keys())
+
+        if not all_ids:
+            await message.reply("👥 هیچ عضوی برای تگ کردن پیدا نشد.")
             return
 
-        parts = []
-        for uid in uids:
-            # تلاش برای گرفتن نام از players (اگر players = {uid: name})
-            name = None
-            try:
-                name = players.get(uid) if isinstance(players, dict) else None
-            except Exception:
-                name = None
-            if name:
+        # تقسیم به دسته‌های 5تایی
+        for i in range(0, len(all_ids), 5):
+            chunk = all_ids[i:i+5]
+            parts = []
+            for uid in chunk:
+                name = players.get(uid, f"User{uid}")
                 parts.append(f"<a href='tg://user?id={uid}'>{html.escape(name)}</a>")
-            else:
-                parts.append(f"<a href='tg://user?id={uid}'>🟢</a>")
-
-        await message.reply("📢 تگ همه بازیکنان:\n" + " ".join(parts), parse_mode="HTML")
-        return
-
+            await message.reply(" ".join(parts), parse_mode="HTML")
     # -------------------
     # دستور "تگ لیست" → فقط بازیکنان حاضر در بازی
     # -------------------
