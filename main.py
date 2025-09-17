@@ -1935,45 +1935,117 @@ async def text_commands_handler(message: types.Message):
     text = message.text.strip().lower()
     group_id = message.chat.id
 
-    # -------------------
-    # دستور "چالش"
-    # -------------------
-    if text == "چالش":
-        await message.reply("⚔️ درخواست چالش ثبت شد.")
+    # helper: تعیین لیست uidهای بازیکنان برای گروه جاری با چند fallback
+    def get_group_player_ids(gid):
+        # 1) players[group_id] اگر ساختار گروهی داشته باشی (لیست)
+        try:
+            val = players.get(gid)
+            if isinstance(val, list) and val:
+                return val
+        except Exception:
+            pass
+
+        # 2) player_slots (صندلی -> uid) اگر پر است، از اون استفاده کن
+        try:
+            if player_slots:
+                # بازگرداندن فقط uidها (به ترتیب صندلی)
+                return [uid for seat, uid in sorted(player_slots.items())]
+        except Exception:
+            pass
+
+        # 3) players به شکل {uid: name} → کل uidها
+        try:
+            if isinstance(players, dict) and players:
+                # اگر values ها اسامی باشن (str) فرض می‌کنیم کلیدها uid هستند
+                sample_val = next(iter(players.values()))
+                if isinstance(sample_val, str) or isinstance(sample_val, (str,)):
+                    return list(players.keys())
+        except Exception:
+            pass
+
+        return []
 
     # -------------------
     # دستور "تگ" → همه بازیکنان در گروه
     # -------------------
-    elif text == "تگ":
-        if group_id not in players or not players[group_id]:
+    if text == "تگ":
+        uids = get_group_player_ids(group_id)
+        if not uids:
             await message.reply("👥 بازیکنی برای تگ کردن وجود ندارد.")
             return
 
-        tags = " ".join([f"<a href='tg://user?id={pid}'>👤</a>" for pid in players[group_id]])
-        await message.reply(f"📢 تگ همه بازیکنان:\n{tags}", parse_mode="HTML")
+        parts = []
+        for uid in uids:
+            # تلاش برای گرفتن نام از players (اگر players = {uid: name})
+            name = None
+            try:
+                name = players.get(uid) if isinstance(players, dict) else None
+            except Exception:
+                name = None
+            if name:
+                parts.append(f"<a href='tg://user?id={uid}'>{html.escape(name)}</a>")
+            else:
+                parts.append(f"<a href='tg://user?id={uid}'>🟢</a>")
+
+        await message.reply("📢 تگ همه بازیکنان:\n" + " ".join(parts), parse_mode="HTML")
+        return
 
     # -------------------
     # دستور "تگ لیست" → فقط بازیکنان حاضر در بازی
     # -------------------
-    elif text == "تگ لیست":
-        if group_id not in players or not players[group_id]:
+    if text == "تگ لیست":
+        # ترجیحاً از player_slots استفاده کن چون صندلی‌ها نشان‌دهندهٔ حاضر بودنن
+        uids = []
+        try:
+            if player_slots:
+                uids = [uid for seat, uid in sorted(player_slots.items())]
+        except Exception:
+            uids = []
+
+        # اگر خالی بود، fallback به همان تابع بالا
+        if not uids:
+            uids = get_group_player_ids(group_id)
+
+        if not uids:
             await message.reply("👥 هیچ بازیکنی در بازی نیست.")
             return
 
-        tags = " ".join([f"<a href='tg://user?id={pid}'>🎮</a>" for pid in players[group_id]])
-        await message.reply(f"📢 تگ بازیکنان حاضر:\n{tags}", parse_mode="HTML")
+        parts = []
+        for uid in uids:
+            name = players.get(uid) if isinstance(players, dict) else None
+            if name:
+                parts.append(f"<a href='tg://user?id={uid}'>{html.escape(name)}</a>")
+            else:
+                parts.append(f"<a href='tg://user?id={uid}'>🎮</a>")
+
+        await message.reply("📢 تگ بازیکنان حاضر:\n" + " ".join(parts), parse_mode="HTML")
+        return
 
     # -------------------
     # دستور "تگ ادمین" → فقط مدیران گروه
     # -------------------
-    elif text == "تگ ادمین":
-        admins = await bot.get_chat_administrators(group_id)
+    if text == "تگ ادمین":
+        try:
+            admins = await bot.get_chat_administrators(group_id)
+        except Exception as e:
+            await message.reply("⚠️ خطا در دریافت مدیران گروه.")
+            return
+
         if not admins:
             await message.reply("ℹ️ هیچ مدیری در این گروه یافت نشد.")
             return
 
-        tags = " ".join([f"<a href='tg://user?id={admin.user.id}'>👮</a>" for admin in admins])
-        await message.reply(f"📢 تگ مدیران گروه:\n{tags}", parse_mode="HTML")
+        parts = []
+        for admin in admins:
+            uid = admin.user.id
+            full = admin.user.full_name or str(uid)
+            parts.append(f"<a href='tg://user?id={uid}'>{html.escape(full)}</a>")
+
+        await message.reply("📢 تگ مدیران گروه:\n" + " ".join(parts), parse_mode="HTML")
+        return
+
+    # بقیه پیام‌ها — نادیده بگیر
+    return
 
 
 
