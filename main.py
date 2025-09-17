@@ -319,30 +319,51 @@ async def new_list_handler(callback: types.CallbackQuery):
 # =========================
 # انتخاب سناریو برای لیست رزروی
 # =========================
+# =============================
+# هندلر انتخاب سناریو (لیست رزروی)
+# =============================
 
-# نمایش لیست سناریوها
-@dp.callback_query_handler(lambda c: c.data == "choose_scenario")
-async def choose_scenario_for_list(callback: types.CallbackQuery):
+@dp.callback_query_handler(lambda c: c.data == "choose_list_scenario")
+async def choose_list_scenario(callback: types.CallbackQuery):
+    """نمایش لیست سناریوها برای لیست رزروی"""
     kb = InlineKeyboardMarkup(row_width=1)
     for scen in scenarios:  # فرض بر اینه که scenarios = ["کلاسیک", "دیدن", ...]
         kb.add(InlineKeyboardButton(scen, callback_data=f"list_scenario_{scen}"))
+    kb.add(InlineKeyboardButton("⬅️ بازگشت", callback_data="back_to_list_menu"))
 
-    await callback.message.edit_text("📜 یکی از سناریوها را انتخاب کنید:", reply_markup=kb)
+    print("📌 DEBUG: لیست سناریوها برای لیست رزروی ارسال شد")
+    await callback.message.edit_text("📜 یک سناریو برای لیست رزروی انتخاب کنید:", reply_markup=kb)
     await callback.answer()
 
-# ثبت انتخاب سناریو
-@dp.callback_query_handler(lambda c: c.data.startswith("list_scenario_"))
-async def set_scenario_for_list(callback: types.CallbackQuery):
-    scen = callback.data.split("list_scenario_")[1]
-    list_settings["scenario"] = scen
-    await callback.answer(f"✅ سناریو «{scen}» انتخاب شد.", show_alert=True)
 
-    # بعد از انتخاب سناریو دوباره منوی تنظیمات برگرده
-    kb = InlineKeyboardMarkup(row_width=1)
-    kb.add(InlineKeyboardButton("📜 سناریو", callback_data="choose_scenario"))
-    kb.add(InlineKeyboardButton("🙋‍♂️ گرداننده", callback_data="choose_god"))
-    kb.add(InlineKeyboardButton("📝 ایجاد لیست", callback_data="create_list"))
-    await callback.message.edit_text("⚙️ تنظیمات لیست:", reply_markup=kb)
+@dp.callback_query_handler(lambda c: c.data.startswith("list_scenario_"))
+async def set_list_scenario(callback: types.CallbackQuery):
+    """ثبت سناریوی انتخاب‌شده برای لیست رزروی"""
+    try:
+        scen = callback.data.split("list_scenario_")[1]
+        list_settings["scenario"] = scen
+
+        print(f"✅ DEBUG: سناریوی انتخاب‌شده برای لیست رزروی: {scen}")
+        await callback.answer(f"✅ سناریو «{scen}» انتخاب شد.", show_alert=True)
+
+        # بعد از انتخاب، برگردیم به منوی لیست رزروی
+        kb = InlineKeyboardMarkup(row_width=1)
+        kb.add(InlineKeyboardButton("🎭 انتخاب سناریو", callback_data="choose_list_scenario"))
+        kb.add(InlineKeyboardButton("🧑‍⚖ انتخاب گرداننده", callback_data="choose_list_god"))
+        kb.add(InlineKeyboardButton("📝 ایجاد لیست", callback_data="create_reserve_list"))
+        kb.add(InlineKeyboardButton("⬅️ بازگشت", callback_data="back_main"))
+
+        await callback.message.edit_text(
+            f"📋 تنظیمات لیست رزروی:\n\n"
+            f"🎭 سناریو: {list_settings.get('scenario', 'انتخاب نشده')}\n"
+            f"🧑‍⚖ گرداننده: {list_settings.get('god', 'انتخاب نشده')}",
+            reply_markup=kb
+        )
+
+    except Exception as e:
+        print("⚠️ ERROR set_list_scenario:", e)
+        await callback.answer("⚠️ خطا در انتخاب سناریو.", show_alert=True)
+
 
     
 # =========================
