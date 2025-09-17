@@ -333,30 +333,26 @@ async def list_players_handler(callback: types.CallbackQuery):
 #=======================
 @dp.callback_query_handler(lambda c: c.data == "resend_roles")
 async def resend_roles_handler(callback: types.CallbackQuery):
-    if callback.message.chat.type != "private":
-        await callback.answer()
-        return
-
-    global players
     if not players:
         await callback.message.answer("🚫 بازیکنی برای ارسال نقش وجود ندارد.")
         await callback.answer()
         return
 
-    # نقش‌ها رو برای هر بازیکن بفرست
-    for p in players:
+    for pid in players:
+        role = roles.get(pid, "❓")
         try:
-            await bot.send_message(p["id"], f"🎭 نقش شما: {p['role']}")
+            await bot.send_message(pid, f"🎭 نقش شما: {role}")
         except Exception:
             pass
 
-    # لیست نقش‌ها برای گرداننده
     text = "📜 لیست نقش‌ها:\n\n"
-    for p in players:
-        text += f"{p['seat']} - <a href='tg://user?id={p['id']}'>{p['name']}</a>: {p['role']}\n"
+    for idx, pid in enumerate(players, start=1):
+        role = roles.get(pid, "❓")
+        text += f"{idx} - <a href='tg://user?id={pid}'>بازیکن {idx}</a>: {role}\n"
 
     await callback.message.answer(text, parse_mode="HTML")
     await callback.answer("📤 نقش‌ها ارسال شدند ✅")
+
 
 #=======================
 # جایگزین بازیکن
@@ -431,40 +427,32 @@ async def replace_player(callback: types.CallbackQuery):
 
 @dp.callback_query_handler(lambda c: c.data == "replace_player")
 async def replace_player_handler(callback: types.CallbackQuery):
-    if callback.message.chat.type != "private":
-        await callback.answer()
-        return
-
-    global substitutes
-    if not substitutes:
+    if not substitute_list:
         await callback.message.answer("🚫 لیست جایگزین‌ها خالی است.")
         await callback.answer()
         return
 
     text = "🔄 لیست جایگزین‌ها:\n\n"
-    for s in substitutes:
-        text += f"<a href='tg://user?id={s['id']}'>{s['name']}</a>\n"
+    for idx, pid in enumerate(substitute_list, start=1):
+        text += f"{idx} - <a href='tg://user?id={pid}'>بازیکن جایگزین {idx}</a>\n"
 
     await callback.message.answer(text, parse_mode="HTML")
     await callback.answer()
 
+
 #=======================
 # حذف بازیکن
-#=======@dp.callback_query_handler(lambda c: c.data == "remove_player")
+#=======================
+@dp.callback_query_handler(lambda c: c.data == "remove_player")
 async def remove_player_handler(callback: types.CallbackQuery):
-    if callback.message.chat.type != "private":
-        await callback.answer()
-        return
-
-    global players
     if not players:
         await callback.message.answer("🚫 هیچ بازیکنی برای حذف وجود ندارد.")
         await callback.answer()
         return
 
     kb = InlineKeyboardMarkup()
-    for p in players:
-        kb.add(InlineKeyboardButton(f"{p['seat']} - {p['name']}", callback_data=f"remove_{p['id']}"))
+    for idx, pid in enumerate(players, start=1):
+        kb.add(InlineKeyboardButton(f"{idx} - بازیکن {idx}", callback_data=f"remove_{pid}"))
 
     await callback.message.answer("🗑 بازیکن مورد نظر را انتخاب کنید:", reply_markup=kb)
     await callback.answer()
@@ -474,19 +462,14 @@ async def remove_player_handler(callback: types.CallbackQuery):
 #=======================
 @dp.callback_query_handler(lambda c: c.data == "player_birthday")
 async def player_birthday_handler(callback: types.CallbackQuery):
-    if callback.message.chat.type != "private":
-        await callback.answer()
-        return
-
-    global dead_players
-    if not dead_players:
+    if not removed_players:
         await callback.message.answer("🚫 بازیکنی برای تولد دوباره وجود ندارد.")
         await callback.answer()
         return
 
     kb = InlineKeyboardMarkup()
-    for p in dead_players:
-        kb.add(InlineKeyboardButton(f"{p['seat']} - {p['name']}", callback_data=f"revive_{p['id']}"))
+    for seat, pid in removed_players.items():
+        kb.add(InlineKeyboardButton(f"{seat} - بازیکن", callback_data=f"revive_{pid}"))
 
     await callback.message.answer("🎂 بازیکن مورد نظر برای تولد دوباره را انتخاب کنید:", reply_markup=kb)
     await callback.answer()
@@ -496,18 +479,13 @@ async def player_birthday_handler(callback: types.CallbackQuery):
 #=======================
 @dp.callback_query_handler(lambda c: c.data.startswith("cancel_"))
 async def cancel_game_handler(callback: types.CallbackQuery):
-    if callback.message.chat.type != "private":
-        await callback.answer()
-        return
-
-    global players, dead_players, substitutes, group_chat_id
     players.clear()
-    dead_players.clear()
-    substitutes.clear()
-    group_chat_id = None
+    removed_players.clear()
+    substitute_list.clear()
 
     await callback.message.answer("🚫 بازی لغو شد.")
     await callback.answer()
+
 
 #========================
 # ثبت هندلر ها
