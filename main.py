@@ -61,6 +61,7 @@ last_role_map = {}
 reserved_list = []       # لیست بازیکنان با صندلی‌ها
 reserved_scenario = None # سناریو انتخابی
 reserved_god = None      # گرداننده انتخابی
+waiting_list = []  # لیست رزرو
 
 # =======================
 # داده های ریست در شروع روز
@@ -431,11 +432,8 @@ async def create_reserved_list(callback: types.CallbackQuery):
         return
 
     # تعداد صندلی‌ها بر اساس سناریوی انتخاب‌شده
-    try:
-        seats_count = scenarios[reserved_scenario]["players"]
-    except Exception:
-        seats_count = 12  # پیش‌فرض اگر توی سناریو مشخص نشده بود
-
+    seats_count = scenarios.get(reserved_scenario, {}).get("players", 12)
+    
     # تاریخ شمسی امروز
     today_date = get_jalali_today()
 
@@ -449,17 +447,15 @@ async def create_reserved_list(callback: types.CallbackQuery):
         f"God : {reserved_god['name']}\n\n"
         "◤◢◣◥◤◢◣◥◤◢◣◥◤◢◣◥◤◢◣◥\n\n"
     )
-
-    # صندلی‌ها خالی در ابتدا
+    # ایجاد صندلی‌ها
     reserved_list = [{"seat": i, "player": None} for i in range(1, seats_count + 1)]
-
     for item in reserved_list:
         text += f"{item['seat']:02d} --- خالی\n"
 
     text += "\n◤◢◣◥◤◢◣◥◤◢◣◥◤◢◣◥◤◢◣◥\n\n༄"
 
-    # دکمه‌های صندلی‌ها
-    kb = InlineKeyboardMarkup(row_width=4)
+    # دکمه‌ها در سه ردیف
+    kb = InlineKeyboardMarkup(row_width=3)
     for item in reserved_list:
         kb.add(InlineKeyboardButton(f"{item['seat']:02d}", callback_data=f"reserve_seat_{item['seat']}"))
 
@@ -471,15 +467,14 @@ async def create_reserved_list(callback: types.CallbackQuery):
 #========================
 @dp.callback_query_handler(lambda c: c.data.startswith("reserve_seat_"))
 async def reserve_seat(callback: types.CallbackQuery):
-    global reserved_list
+    global reserved_list, waiting_list
 
-    seat = int(callback.data.split("reserve_seat_")[1])
+    seat_num = int(callback.data.split("reserve_seat_")[1])
     user_id = callback.from_user.id
     user_name = callback.from_user.full_name
 
-    # پیدا کردن صندلی
-    seat_info = next((s for s in reserved_list if s["seat"] == seat), None)
-    if seat_info is None:
+    seat_info = next((s for s in reserved_list if s["seat"] == seat_num), None)
+    if not seat_info:
         await callback.answer("⚠️ صندلی نامعتبر است", show_alert=True)
         return
 
@@ -491,14 +486,18 @@ async def reserve_seat(callback: types.CallbackQuery):
         seat_info["player"] = {"id": user_id, "name": user_name}
         await callback.answer("✅ صندلی برای شما رزرو شد")
     elif seat_info["player"] and seat_info["player"]["id"] == user_id:
-        # لغو رزرو
         seat_info["player"] = None
         await callback.answer("❌ رزرو شما لغو شد")
     else:
         await callback.answer("⚠️ صندلی پر است یا شما قبلا صندلی دارید", show_alert=True)
         return
 
-    # متن آپدیت‌شده
+    await update_reserved_message(callback.message)
+
+
+async def update_reserved_message(message):
+    global reserved_list, waiting_list
+
     today_date = get_jalali_today()
     text = (
         "༄\n\n"
@@ -516,15 +515,65 @@ async def reserve_seat(callback: types.CallbackQuery):
         else:
             text += f"{item['seat']:02d} --- خالی\n"
 
+    # پیام لیست رزرو و جایگزین
+    if all(s["player"] for s in reserved_list):
+        text += "\n📢 لیست پر شد! اگر می‌خواید جایگزین شوید، روی دکمه رزرو بزنید.\n"
+        if waiting_list:
+            text += "💺 لیست رزرو:\n"
+            for idx, user in enumerate(waiting_list, start=1):
+                text += f"{idx}. {user['name']}\n"
+
     text += "\n◤◢◣◥◤◢◣◥◤◢◣◥◤◢◣◥◤◢◣◥\n\n༄"
 
-    # دکمه‌های آپدیت‌شده
-    kb = InlineKeyboardMarkup(row_width=4)
-    for item in reserved_list:
-        label = f"{item['seat']:02d} ✅" if item["player"] else f"{item['seat']:02d}"
-        kb.add(InlineKeyboardButton(label, callback_data=f"reserve_seat_{item['seat']}"))
+    # دکمه‌ها
+    kb = InlineKeyboardMarkup(row_width=3)
+    if all(s["player"] for s in reserved_list):
+        kb = InlineKeyboardMarkup(row_width=1)
+        kb.add(InlineKeyboardButton("❌ کنسل", callback_data="cancel_seat"))
+        kb.add(InlineKeyboardButton("💺 رزرو", callback_data="reserve_waiting"))
+    else:
+        for item in reserved_list:
+            label = f"{item['seat']:02d} ✅" if item["player"] else f"{item['seat']:02d}"
+            kb.add(InlineKeyboardButton(label, callback_data=f"reserve_seat_{item['seat']}"))
 
-    await callback.message.edit_text(text, reply_markup=kb, parse_mode="HTML")
+    await message.edit_text(text, reply_markup=kb, parse_mode="HTML")
+# =========================
+# رزرو به لیست انتظار
+# =========================
+@dp.callback_query_handler(lambda c: c.data == "reserve_waiting")
+async def reserve_waiting(callback: types.CallbackQuery):
+    global waiting_list
+    user_id = callback.from_user.id
+    user_name = callback.from_user.full_name
+
+    if not any(u["id"] == user_id for u in waiting_list):
+        waiting_list.append({"id": user_id, "name": user_name})
+        await callback.answer("✅ شما به لیست رزرو اضافه شدید")
+        await update_reserved_message(callback.message)
+    else:
+        await callback.answer("⚠️ شما قبلا در لیست رزرو هستید", show_alert=True)
+
+# =========================
+# کنسل رزرو
+# =========================
+@dp.callback_query_handler(lambda c: c.data == "cancel_seat")
+async def cancel_seat(callback: types.CallbackQuery):
+    global reserved_list, waiting_list
+    user_id = callback.from_user.id
+
+    # پیدا کردن صندلی کاربر
+    seat_info = next((s for s in reserved_list if s["player"] and s["player"]["id"] == user_id), None)
+    if seat_info:
+        seat_info["player"] = None
+        await callback.answer("❌ رزرو شما لغو شد")
+        # جایگزینی اولین نفر رزرو
+        if waiting_list:
+            next_user = waiting_list.pop(0)
+            seat_info["player"] = next_user
+
+        await update_reserved_message(callback.message)
+    else:
+        await callback.answer("⚠️ شما صندلی رزرو نکرده‌اید", show_alert=True)
 
 # =======================
 # وضعیت چالش
