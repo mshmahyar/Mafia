@@ -332,40 +332,40 @@ async def new_list_handler(callback: types.CallbackQuery):
     await callback.message.edit_text("⚙️ تنظیمات لیست:", reply_markup=kb)
     await callback.answer()
 
+
 # =========================
 # انتخاب سناریو برای لیست رزروی
 # =========================
 @dp.callback_query_handler(lambda c: c.data == "list_choose_scenario")
 async def list_choose_scenario(callback: types.CallbackQuery):
     kb = InlineKeyboardMarkup(row_width=1)
-    for scen in scenarios:   # از همون فایل سناریو میگیره
+    for scen in scenarios:   # از همون فایل سناریو می‌گیره
         kb.add(InlineKeyboardButton(scen, callback_data=f"list_scenario_{scen}"))
 
     await callback.message.edit_text("📜 یک سناریو برای لیست رزروی انتخاب کنید:", reply_markup=kb)
 
-@dp.callback_query_handler(lambda c: c.data == "list_choose_god")
-async def list_choose_god(callback: types.CallbackQuery):
-    global reserved_list
 
-    if not reserved_list or all(s["player"] is None for s in reserved_list):
-        await callback.answer("⚠️ هنوز هیچ بازیکنی در لیست رزروی ثبت نشده", show_alert=True)
-        return
+@dp.callback_query_handler(lambda c: c.data.startswith("list_scenario_"))
+async def list_set_scenario(callback: types.CallbackQuery):
+    global reserved_scenario
+    reserved_scenario = callback.data.split("list_scenario_")[1]
+    await callback.answer("✅ سناریو برای لیست رزروی انتخاب شد")
 
-    kb = InlineKeyboardMarkup(row_width=2)
-    for s in reserved_list:
-        if s["player"]:
-            kb.add(InlineKeyboardButton(s["player"]["name"], callback_data=f"list_god_{s['player']['id']}"))
+    # بازگشت به منوی تنظیمات
+    kb = InlineKeyboardMarkup(row_width=1)
+    kb.add(InlineKeyboardButton("📜 سناریو", callback_data="list_choose_scenario"))
+    kb.add(InlineKeyboardButton("🙋‍♂️ گرداننده", callback_data="list_choose_god"))
+    kb.add(InlineKeyboardButton("📝 ایجاد لیست", callback_data="list_create"))
 
-    await callback.message.edit_text("👤 یک بازیکن را به عنوان گرداننده لیست رزروی انتخاب کنید:", reply_markup=kb)
-
-
+    await callback.message.edit_text(
+        f"📜 سناریوی انتخابی برای لیست رزروی:\n<b>{reserved_scenario}</b>\n\n⚙️ تنظیمات لیست:",
+        reply_markup=kb,
+        parse_mode="HTML"
+    )
 
 
 # -----------------------------
-# هندلر: انتخاب گرداننده لیست رزروی
-# -----------------------------
-# -----------------------------
-# هندلر: انتخاب گرداننده لیست رزروی از بین مدیران گروه
+# انتخاب گرداننده از بین ادمین‌ها
 # -----------------------------
 @dp.callback_query_handler(lambda c: c.data == "list_choose_god")
 async def list_choose_god(callback: types.CallbackQuery):
@@ -393,7 +393,6 @@ async def list_set_god(callback: types.CallbackQuery):
     global reserved_god
     god_id = int(callback.data.split("list_god_")[1])
 
-    # گرفتن اطلاعات کاربر
     chat_id = callback.message.chat.id
     admins = await bot.get_chat_administrators(chat_id)
     god_name = None
@@ -416,7 +415,6 @@ async def list_set_god(callback: types.CallbackQuery):
         reply_markup=kb,
         parse_mode="HTML"
     )
-
 
 #=========================
 # ساخت لیست
