@@ -88,7 +88,28 @@ async def manage_game_handler(callback: types.CallbackQuery):
     kb = manage_game_keyboard(group_chat_id)
     await callback.message.answer("🎮 منوی مدیریت بازی:", reply_markup=kb)
     await callback.answer()
-    
+
+# ======================
+# لیست بازیکنان
+# ======================
+@dp.callback_query_handler(lambda c: c.data == "list_players")
+async def list_players_handler(callback: types.CallbackQuery):
+    if callback.message.chat.type != "private":
+        await callback.answer()
+        return
+
+    global players  # فرض: players لیستی از دیکشنری بازیکنان فعلیه
+    if not players:
+        await callback.message.answer("👥 هیچ بازیکنی در بازی نیست.")
+        await callback.answer()
+        return
+
+    text = "👥 لیست بازیکنان:\n\n"
+    for p in players:
+        text += f"{p['seat']} - <a href='tg://user?id={p['id']}'>{p['name']}</a>\n"
+
+    await callback.message.answer(text, parse_mode="HTML")
+    await callback.answer()
 
     
 
@@ -288,71 +309,55 @@ async def challenge_status_pv(callback: types.CallbackQuery):
 #=======================
 # لیست بازیکنان
 #=======================
-async def list_players_pv(callback: types.CallbackQuery):
-    # اگر در گروه زده شد، هندلر اصلی لابی کار کند
+@dp.callback_query_handler(lambda c: c.data == "list_players")
+async def list_players_handler(callback: types.CallbackQuery):
     if callback.message.chat.type != "private":
-        return
-
-    # گرفتن لیست بازیکنان از دیتابیس یا متغیر سراسری
-    # فرضا players = {seat_number: {"id": user_id, "name": name}}
-    players = get_players_for_group(callback.from_user.id)  # باید تابع خودت داشته باشی
-    if not players:
-        await callback.message.answer("⚠️ هیچ بازیکنی ثبت نشده است.")
         await callback.answer()
         return
 
-    # مرتب سازی بر اساس شماره صندلی
-    sorted_players = sorted(players.items(), key=lambda x: x[0])
+    global players  # فرض: players لیستی از دیکشنری بازیکنان فعلیه
+    if not players:
+        await callback.message.answer("👥 هیچ بازیکنی در بازی نیست.")
+        await callback.answer()
+        return
 
-    # ساخت متن پیام با منشن
-    text = "👥 لیست بازیکنان:\n"
-    for seat, player in sorted_players:
-        text += f"{seat}. [{player['name']}](tg://user?id={player['id']})\n"
+    text = "👥 لیست بازیکنان:\n\n"
+    for p in players:
+        text += f"{p['seat']} - <a href='tg://user?id={p['id']}'>{p['name']}</a>\n"
 
-    # ارسال پیام در پیوی
-    await callback.message.answer(text, parse_mode="Markdown")
+    await callback.message.answer(text, parse_mode="HTML")
     await callback.answer()
 
-# ثبت هندلر در دیسپچر
-def register_player_list_handler(dp: Dispatcher):
-    dp.register_callback_query_handler(list_players_pv, lambda c: c.data == "list_players")
 #=======================
 # ارسال نقش ها
 #=======================
-async def send_roles_panel(callback: types.CallbackQuery, bot):
-    group_id = get_group_for_admin(callback.from_user.id)  # تابع خودت برای پیدا کردن گروه
-    players = players_in_game.get(group_id, {})
-
-    if not players:
-        await callback.message.answer("⚠️ هیچ بازیکنی ثبت نشده است.")
+@dp.callback_query_handler(lambda c: c.data == "resend_roles")
+async def resend_roles_handler(callback: types.CallbackQuery):
+    if callback.message.chat.type != "private":
         await callback.answer()
         return
 
-    # 1️⃣ ارسال نقش به هر بازیکن در پیوی
-    for seat, player in players.items():
-        roles = ", ".join(player.get("roles", []))
-        text = f"🎭 نقش شما:\n{roles}\n\nشماره صندلی شما: {seat}"
+    global players
+    if not players:
+        await callback.message.answer("🚫 بازیکنی برای ارسال نقش وجود ندارد.")
+        await callback.answer()
+        return
+
+    # نقش‌ها رو برای هر بازیکن بفرست
+    for p in players:
         try:
-            await bot.send_message(player["id"], text)
-        except Exception as e:
-            print(f"⚠️ خطا در ارسال نقش به {player['name']}: {e}")
+            await bot.send_message(p["id"], f"🎭 نقش شما: {p['role']}")
+        except Exception:
+            pass
 
-    # 2️⃣ ارسال لیست بازیکنان همراه نقش‌ها برای گرداننده
-    sorted_players = sorted(players.items(), key=lambda x: x[0])
-    text = "🎭 لیست بازیکنان و نقش‌ها:\n"
-    for seat, p in sorted_players:
-        roles = ", ".join(p.get("roles", []))
-        text += f"{seat}. [{p['name']}](tg://user?id={p['id']}) — {roles}\n"
+    # لیست نقش‌ها برای گرداننده
+    text = "📜 لیست نقش‌ها:\n\n"
+    for p in players:
+        text += f"{p['seat']} - <a href='tg://user?id={p['id']}'>{p['name']}</a>: {p['role']}\n"
 
-    await callback.message.answer(text, parse_mode="Markdown")
-    await callback.answer("✅ نقش‌ها ارسال شدند و لیست برای شما نمایش داده شد.")
+    await callback.message.answer(text, parse_mode="HTML")
+    await callback.answer("📤 نقش‌ها ارسال شدند ✅")
 
-# ثبت هندلر
-def register_send_roles_handler(dp):
-    dp.register_callback_query_handler(
-        lambda c: send_roles_panel(c, dp.bot), 
-        lambda c: c.data == "resend_roles"
-    )
 #=======================
 # جایگزین بازیکن
 #=======================
@@ -421,64 +426,89 @@ async def replace_player(callback: types.CallbackQuery):
     players_in_game[group_id][seat] = {"id": sub_id, "name": sub_data["name"], "role": role}
 
     await callback.message.answer(f"✅ بازیکن {old_player['name']} با {sub_data['name']} جایگزین شد.")
-#=======================
-# حذف بازیکن
-#=======================
-async def remove_player_handler(callback: types.CallbackQuery):
-    group_id = get_group_for_admin(callback.from_user.id)
-    current_players = players_in_game.get(group_id, {})
-    if not current_players:
-        await callback.message.answer("⚠️ هیچ بازیکنی در بازی نیست.")
+
+#-------------------------------------------
+
+@dp.callback_query_handler(lambda c: c.data == "replace_player")
+async def replace_player_handler(callback: types.CallbackQuery):
+    if callback.message.chat.type != "private":
         await callback.answer()
         return
 
-    kb = InlineKeyboardMarkup(row_width=1)
-    for seat, p in current_players.items():
-        kb.add(InlineKeyboardButton(f"{seat}. {p['name']}", callback_data=f"remove_{seat}_{group_id}"))
-
-    await callback.message.answer("🗑 بازیکنی که می‌خواهید حذف کنید را انتخاب کنید:", reply_markup=kb)
-
-async def remove_player_confirm(callback: types.CallbackQuery):
-    parts = callback.data.split("_")
-    seat = int(parts[1])
-    group_id = int(parts[2])
-
-    player = players_in_game[group_id].pop(seat, None)
-    if not player:
-        await callback.message.answer("⚠️ بازیکن پیدا نشد.")
+    global substitutes
+    if not substitutes:
+        await callback.message.answer("🚫 لیست جایگزین‌ها خالی است.")
+        await callback.answer()
         return
 
-    removed_players.setdefault(group_id, {})[seat] = player
-    await callback.message.answer(f"✅ بازیکن {player['name']} حذف شد و به لیست خارج شده‌ها منتقل شد.")
+    text = "🔄 لیست جایگزین‌ها:\n\n"
+    for s in substitutes:
+        text += f"<a href='tg://user?id={s['id']}'>{s['name']}</a>\n"
+
+    await callback.message.answer(text, parse_mode="HTML")
+    await callback.answer()
+
+#=======================
+# حذف بازیکن
+#=======@dp.callback_query_handler(lambda c: c.data == "remove_player")
+async def remove_player_handler(callback: types.CallbackQuery):
+    if callback.message.chat.type != "private":
+        await callback.answer()
+        return
+
+    global players
+    if not players:
+        await callback.message.answer("🚫 هیچ بازیکنی برای حذف وجود ندارد.")
+        await callback.answer()
+        return
+
+    kb = InlineKeyboardMarkup()
+    for p in players:
+        kb.add(InlineKeyboardButton(f"{p['seat']} - {p['name']}", callback_data=f"remove_{p['id']}"))
+
+    await callback.message.answer("🗑 بازیکن مورد نظر را انتخاب کنید:", reply_markup=kb)
+    await callback.answer()
+
 #=======================
 # تولد بازیکن
 #=======================
-async def birthday_player_handler(callback: types.CallbackQuery):
-    group_id = get_group_for_admin(callback.from_user.id)
-    removed = removed_players.get(group_id, {})
-    if not removed:
-        await callback.message.answer("⚠️ هیچ بازیکنی در لیست خارج شده‌ها نیست.")
+@dp.callback_query_handler(lambda c: c.data == "player_birthday")
+async def player_birthday_handler(callback: types.CallbackQuery):
+    if callback.message.chat.type != "private":
         await callback.answer()
         return
 
-    kb = InlineKeyboardMarkup(row_width=1)
-    for seat, p in removed.items():
-        kb.add(InlineKeyboardButton(f"{seat}. {p['name']}", callback_data=f"revive_{seat}_{group_id}"))
-
-    await callback.message.answer("🎂 بازیکنی که می‌خواهید بازگردانید را انتخاب کنید:", reply_markup=kb)
-
-async def birthday_player_confirm(callback: types.CallbackQuery):
-    parts = callback.data.split("_")
-    seat = int(parts[1])
-    group_id = int(parts[2])
-
-    player = removed_players[group_id].pop(seat, None)
-    if not player:
-        await callback.message.answer("⚠️ بازیکن پیدا نشد.")
+    global dead_players
+    if not dead_players:
+        await callback.message.answer("🚫 بازیکنی برای تولد دوباره وجود ندارد.")
+        await callback.answer()
         return
 
-    players_in_game.setdefault(group_id, {})[seat] = player
-    await callback.message.answer(f"✅ بازیکن {player['name']} با همان شماره صندلی و نقش بازگردانده شد.")
+    kb = InlineKeyboardMarkup()
+    for p in dead_players:
+        kb.add(InlineKeyboardButton(f"{p['seat']} - {p['name']}", callback_data=f"revive_{p['id']}"))
+
+    await callback.message.answer("🎂 بازیکن مورد نظر برای تولد دوباره را انتخاب کنید:", reply_markup=kb)
+    await callback.answer()
+
+#=======================
+# لغو بازی
+#=======================
+@dp.callback_query_handler(lambda c: c.data.startswith("cancel_"))
+async def cancel_game_handler(callback: types.CallbackQuery):
+    if callback.message.chat.type != "private":
+        await callback.answer()
+        return
+
+    global players, dead_players, substitutes, group_chat_id
+    players.clear()
+    dead_players.clear()
+    substitutes.clear()
+    group_chat_id = None
+
+    await callback.message.answer("🚫 بازی لغو شد.")
+    await callback.answer()
+
 #========================
 # ثبت هندلر ها
 #========================
