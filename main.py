@@ -326,8 +326,9 @@ def turn_keyboard(seat, is_challenge=False):
 @dp.callback_query_handler(lambda c: c.data == "new_list")
 async def new_list_handler(callback: types.CallbackQuery):
     kb = InlineKeyboardMarkup(row_width=1)
-    kb.add(InlineKeyboardButton("📜 سناریو", callback_data="choose_scenario"))
-    kb.add(InlineKeyboardButton("🙋‍♂️ گرداننده", callback_data="choose_god"))
+    kb.add(InlineKeyboardButton("📜 سناریو", callback_data="list_choose_scenario"))
+    kb.add(InlineKeyboardButton("🙋‍♂️ گرداننده", callback_data="list_choose_god"))
+    kb.add(InlineKeyboardButton("📝 ایجاد لیست", callback_data="list_create"))
     await callback.message.edit_text("⚙️ تنظیمات لیست:", reply_markup=kb)
     await callback.answer()
 
