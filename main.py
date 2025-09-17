@@ -2060,23 +2060,23 @@ async def text_commands_handler(message: types.Message):
     # -------------------
     # دستور "تگ" → همه بازیکنان در گروه
     # -------------------
-    elif text == "تگ":
-        try:
-            members = await bot.get_chat_administrators(group_id)
-            # اول همه ادمین‌ها رو بگیریم تا بعداً حذفشون کنیم از لیست اعضا (اختیاری)
-            admin_ids = [admin.user.id for admin in members]
-        except Exception:
-            admin_ids = []
+        elif text == "تگ":
+            try:
+                members = await bot.get_chat_administrators(group_id)
+                # اول همه ادمین‌ها رو بگیریم تا بعداً حذفشون کنیم از لیست اعضا (اختیاری)
+                admin_ids = [admin.user.id for admin in members]
+            except Exception:
+                admin_ids = []
 
-        try:
-            # گرفتن لیست اعضا (این متد فقط روی بات‌هایی که مجوز full members دارن کار می‌کنه)
-            chat_members = await bot.get_chat(group_id)
-            # ⚠️ توجه: Bot API مستقیماً متدی برای گرفتن همه اعضای گروه نداره!
-            # معمولاً باید از db محلی یا via userbot / Telethon انجام بدی.
-            # برای ساده‌سازی، از players استفاده می‌کنیم که در بازی ذخیره شدن.
-            all_ids = list(players.keys())  # اگر players = {uid: name}
-        except Exception:
-            all_ids = list(players.keys())
+            try:
+                # گرفتن لیست اعضا (این متد فقط روی بات‌هایی که مجوز full members دارن کار می‌کنه)
+                chat_members = await bot.get_chat(group_id)
+                # ⚠️ توجه: Bot API مستقیماً متدی برای گرفتن همه اعضای گروه نداره!
+                # معمولاً باید از db محلی یا via userbot / Telethon انجام بدی.
+                # برای ساده‌سازی، از players استفاده می‌کنیم که در بازی ذخیره شدن.
+                all_ids = list(players.keys())  # اگر players = {uid: name}
+            except Exception:
+                all_ids = list(players.keys())
 
         if not all_ids:
             await message.reply("👥 هیچ عضوی برای تگ کردن پیدا نشد.")
