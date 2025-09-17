@@ -315,14 +315,54 @@ async def new_list_handler(callback: types.CallbackQuery):
     kb.add(InlineKeyboardButton("🙋‍♂️ گرداننده", callback_data="choose_god"))
     await callback.message.edit_text("⚙️ تنظیمات لیست:", reply_markup=kb)
     await callback.answer()
+
+# =========================
+# انتخاب سناریو برای لیست رزروی
+# =========================
+
+# نمایش لیست سناریوها
+@dp.callback_query_handler(lambda c: c.data == "choose_scenario")
+async def choose_scenario_for_list(callback: types.CallbackQuery):
+    kb = InlineKeyboardMarkup(row_width=1)
+    for scen in scenarios:  # فرض بر اینه که scenarios = ["کلاسیک", "دیدن", ...]
+        kb.add(InlineKeyboardButton(scen, callback_data=f"list_scenario_{scen}"))
+
+    await callback.message.edit_text("📜 یکی از سناریوها را انتخاب کنید:", reply_markup=kb)
+    await callback.answer()
+
+# ثبت انتخاب سناریو
+@dp.callback_query_handler(lambda c: c.data.startswith("list_scenario_"))
+async def set_scenario_for_list(callback: types.CallbackQuery):
+    scen = callback.data.split("list_scenario_")[1]
+    list_settings["scenario"] = scen
+    await callback.answer(f"✅ سناریو «{scen}» انتخاب شد.", show_alert=True)
+
+    # بعد از انتخاب سناریو دوباره منوی تنظیمات برگرده
+    kb = InlineKeyboardMarkup(row_width=1)
+    kb.add(InlineKeyboardButton("📜 سناریو", callback_data="choose_scenario"))
+    kb.add(InlineKeyboardButton("🙋‍♂️ گرداننده", callback_data="choose_god"))
+    kb.add(InlineKeyboardButton("📝 ایجاد لیست", callback_data="create_list"))
+    await callback.message.edit_text("⚙️ تنظیمات لیست:", reply_markup=kb)
+
     
-#=========================
-# انتخاب گرداننده
-#=========================
+# =========================
+# انتخاب گرداننده برای لیست رزروی
+# =========================
+
+# وقتی کاربر روی دکمه "🙋‍♂️ گرداننده" بزند
 @dp.callback_query_handler(lambda c: c.data == "choose_god")
-async def choose_god_handler(callback: types.CallbackQuery):
+async def choose_god_for_list(callback: types.CallbackQuery):
+    # در اینجا ساده‌ترین حالت: گرداننده همان کسی است که دکمه را زده
     list_settings["god"] = callback.from_user.full_name
-    await callback.answer("✅ گرداننده ثبت شد.")
+    await callback.answer(f"✅ گرداننده «{callback.from_user.full_name}» انتخاب شد.", show_alert=True)
+
+    # بعد از انتخاب، برگردیم به منوی تنظیمات
+    kb = InlineKeyboardMarkup(row_width=1)
+    kb.add(InlineKeyboardButton("📜 سناریو", callback_data="choose_scenario"))
+    kb.add(InlineKeyboardButton("🙋‍♂️ گرداننده", callback_data="choose_god"))
+    kb.add(InlineKeyboardButton("📝 ایجاد لیست", callback_data="create_list"))
+
+    await callback.message.edit_text("⚙️ تنظیمات لیست:", reply_markup=kb)
 
 #=========================
 # ساخت لیست
