@@ -8,7 +8,9 @@ from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.utils import executor
 import html
 import commands
-from khayyam import JalaliDatetime
+import jdatetime
+import datetime
+import pytz
 
 # ======================
 # تنظیمات ربات
@@ -60,9 +62,9 @@ reserved_list = []       # لیست بازیکنان با صندلی‌ها
 reserved_scenario = None # سناریو انتخابی
 reserved_god = None      # گرداننده انتخابی
 
-#=======================
+# =======================
 # داده های ریست در شروع روز
-#=======================
+# =======================
 def reset_round_data():
     global current_turn_index, turn_order, challenge_requests, active_challenger_seats
     global paused_main_player, paused_main_duration, post_challenge_advance, pending_challenges
@@ -75,6 +77,15 @@ def reset_round_data():
     paused_main_duration = None
     post_challenge_advance = False
     pending_challenges = {}
+
+# -----------------------------
+# تابع گرفتن تاریخ شمسی امروز (تهران)
+# -----------------------------
+def get_jalali_today():
+    tehran = pytz.timezone("Asia/Tehran")
+    now_tehran = datetime.datetime.now(tehran)
+    jalali = jdatetime.datetime.fromgregorian(datetime=now_tehran)
+    return jalali.strftime("%Y/%m/%d")
 
 # ======================
 # 🎮 مدیریت بازی در پیوی
@@ -388,10 +399,16 @@ async def create_reserved_list(callback: types.CallbackQuery):
         await callback.answer("⚠️ لطفا اول گرداننده را انتخاب کنید", show_alert=True)
         return
 
-    # تاریخ شمسی امروز
-    today_date = JalaliDatetime.today().strftime("%Y/%m/%d")
+    # تعداد صندلی‌ها بر اساس سناریوی انتخاب‌شده
+    try:
+        seats_count = scenarios[reserved_scenario]["players"]
+    except Exception:
+        seats_count = 12  # پیش‌فرض اگر توی سناریو مشخص نشده بود
 
-    # متن لیست
+    # تاریخ شمسی امروز
+    today_date = get_jalali_today()
+
+    # متن اولیه لیست
     text = (
         "༄\n\n"
         "Mafia Nights\n\n"
@@ -402,8 +419,8 @@ async def create_reserved_list(callback: types.CallbackQuery):
         "◤◢◣◥◤◢◣◥◤◢◣◥◤◢◣◥◤◢◣◥\n\n"
     )
 
-    # صندلی‌ها خالی هستند در ابتدا
-    reserved_list = [{"seat": i, "player": None} for i in range(1, 13)]  # پیش‌فرض ۱۲ نفر، میشه داینامیک کرد
+    # صندلی‌ها خالی در ابتدا
+    reserved_list = [{"seat": i, "player": None} for i in range(1, seats_count + 1)]
 
     for item in reserved_list:
         text += f"{item['seat']:02d} --- خالی\n"
@@ -416,29 +433,67 @@ async def create_reserved_list(callback: types.CallbackQuery):
         kb.add(InlineKeyboardButton(f"{item['seat']:02d}", callback_data=f"reserve_seat_{item['seat']}"))
 
     await callback.message.edit_text(text, reply_markup=kb, parse_mode="HTML")
+
     
 #========================
 # رزرو در لیست
 #========================
-@dp.callback_query_handler(lambda c: c.data.startswith("seat_"))
-async def seat_handler(callback: types.CallbackQuery):
-    seat_num = int(callback.data.split("_")[1])
+@dp.callback_query_handler(lambda c: c.data.startswith("reserve_seat_"))
+async def reserve_seat(callback: types.CallbackQuery):
+    global reserved_list
+
+    seat = int(callback.data.split("reserve_seat_")[1])
     user_id = callback.from_user.id
-    name = callback.from_user.full_name
+    user_name = callback.from_user.full_name
 
-    # اگر صندلی خالیه و کاربر هنوز صندلی نداره → انتخاب
-    if seat_num not in list_settings["seats"] and user_id not in [v["id"] for v in list_settings["seats"].values()]:
-        list_settings["seats"][seat_num] = {"id": user_id, "name": name}
-        await callback.answer("✅ صندلی شما رزرو شد.")
-    # اگر کاربر روی صندلی خودش دوباره زد → لغو
-    elif seat_num in list_settings["seats"] and list_settings["seats"][seat_num]["id"] == user_id:
-        del list_settings["seats"][seat_num]
-        await callback.answer("❌ رزرو شما لغو شد.")
+    # پیدا کردن صندلی
+    seat_info = next((s for s in reserved_list if s["seat"] == seat), None)
+    if seat_info is None:
+        await callback.answer("⚠️ صندلی نامعتبر است", show_alert=True)
+        return
+
+    # بررسی رزرو قبلی کاربر
+    already_reserved = next((s for s in reserved_list if s["player"] and s["player"]["id"] == user_id), None)
+
+    if seat_info["player"] is None and not already_reserved:
+        # رزرو صندلی
+        seat_info["player"] = {"id": user_id, "name": user_name}
+        await callback.answer("✅ صندلی برای شما رزرو شد")
+    elif seat_info["player"] and seat_info["player"]["id"] == user_id:
+        # لغو رزرو
+        seat_info["player"] = None
+        await callback.answer("❌ رزرو شما لغو شد")
     else:
-        await callback.answer("⚠️ برای انتخاب صندلی جدید، ابتدا رزرو قبلی‌تان را لغو کنید.", show_alert=True)
+        await callback.answer("⚠️ صندلی پر است یا شما قبلا صندلی دارید", show_alert=True)
+        return
 
-    # متن لیست رو دوباره بساز و پیام رو آپدیت کن
-    await create_list_handler(callback)
+    # متن آپدیت‌شده
+    today_date = get_jalali_today()
+    text = (
+        "༄\n\n"
+        "Mafia Nights\n\n"
+        f"Time : 21:00\n"
+        f"Date : {today_date}\n"
+        f"Scenario : {reserved_scenario}\n"
+        f"God : {reserved_god['name']}\n\n"
+        "◤◢◣◥◤◢◣◥◤◢◣◥◤◢◣◥◤◢◣◥\n\n"
+    )
+
+    for item in reserved_list:
+        if item["player"]:
+            text += f"{item['seat']:02d} {item['player']['name']}\n"
+        else:
+            text += f"{item['seat']:02d} --- خالی\n"
+
+    text += "\n◤◢◣◥◤◢◣◥◤◢◣◥◤◢◣◥◤◢◣◥\n\n༄"
+
+    # دکمه‌های آپدیت‌شده
+    kb = InlineKeyboardMarkup(row_width=4)
+    for item in reserved_list:
+        label = f"{item['seat']:02d} ✅" if item["player"] else f"{item['seat']:02d}"
+        kb.add(InlineKeyboardButton(label, callback_data=f"reserve_seat_{item['seat']}"))
+
+    await callback.message.edit_text(text, reply_markup=kb, parse_mode="HTML")
 
 # =======================
 # وضعیت چالش
