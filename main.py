@@ -8,6 +8,7 @@ from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.utils import executor
 import html
 import commands
+from khayyam import JalaliDatetime
 
 # ======================
 # تنظیمات ربات
@@ -55,6 +56,9 @@ substitute_list = {}  # group_id: {user_id: {"name": name}}
 players_in_game = {}  # group_id: {seat_number: {"id": user_id, "name": name, "role": role}}
 removed_players = {}  # group_id: {seat_number: {"id": user_id, "name": name, "roles": []}}
 last_role_map = {}
+reserved_list = []       # لیست بازیکنان با صندلی‌ها
+reserved_scenario = None # سناریو انتخابی
+reserved_god = None      # گرداننده انتخابی
 
 #=======================
 # داده های ریست در شروع روز
@@ -319,118 +323,99 @@ async def new_list_handler(callback: types.CallbackQuery):
 # =========================
 # انتخاب سناریو برای لیست رزروی
 # =========================
-# =============================
-# هندلر انتخاب سناریو (لیست رزروی)
-# =============================
-
-@dp.callback_query_handler(lambda c: c.data == "choose_list_scenario")
-async def choose_list_scenario(callback: types.CallbackQuery):
-    """نمایش لیست سناریوها برای لیست رزروی"""
+@dp.callback_query_handler(lambda c: c.data == "list_choose_scenario")
+async def list_choose_scenario(callback: types.CallbackQuery):
     kb = InlineKeyboardMarkup(row_width=1)
-    for scen in scenarios:  # فرض بر اینه که scenarios = ["کلاسیک", "دیدن", ...]
+    for scen in scenarios:   # از همون فایل سناریو میگیره
         kb.add(InlineKeyboardButton(scen, callback_data=f"list_scenario_{scen}"))
-    kb.add(InlineKeyboardButton("⬅️ بازگشت", callback_data="back_to_list_menu"))
 
-    print("📌 DEBUG: لیست سناریوها برای لیست رزروی ارسال شد")
     await callback.message.edit_text("📜 یک سناریو برای لیست رزروی انتخاب کنید:", reply_markup=kb)
-    await callback.answer()
 
 
 @dp.callback_query_handler(lambda c: c.data.startswith("list_scenario_"))
-async def set_list_scenario(callback: types.CallbackQuery):
-    """ثبت سناریوی انتخاب‌شده برای لیست رزروی"""
-    try:
-        scen = callback.data.split("list_scenario_")[1]
-        list_settings["scenario"] = scen
-
-        print(f"✅ DEBUG: سناریوی انتخاب‌شده برای لیست رزروی: {scen}")
-        await callback.answer(f"✅ سناریو «{scen}» انتخاب شد.", show_alert=True)
-
-        # بعد از انتخاب، برگردیم به منوی لیست رزروی
-        kb = InlineKeyboardMarkup(row_width=1)
-        kb.add(InlineKeyboardButton("🎭 انتخاب سناریو", callback_data="choose_list_scenario"))
-        kb.add(InlineKeyboardButton("🧑‍⚖ انتخاب گرداننده", callback_data="choose_list_god"))
-        kb.add(InlineKeyboardButton("📝 ایجاد لیست", callback_data="create_reserve_list"))
-        kb.add(InlineKeyboardButton("⬅️ بازگشت", callback_data="back_main"))
-
-        await callback.message.edit_text(
-            f"📋 تنظیمات لیست رزروی:\n\n"
-            f"🎭 سناریو: {list_settings.get('scenario', 'انتخاب نشده')}\n"
-            f"🧑‍⚖ گرداننده: {list_settings.get('god', 'انتخاب نشده')}",
-            reply_markup=kb
-        )
-
-    except Exception as e:
-        print("⚠️ ERROR set_list_scenario:", e)
-        await callback.answer("⚠️ خطا در انتخاب سناریو.", show_alert=True)
+async def list_set_scenario(callback: types.CallbackQuery):
+    global reserved_scenario
+    reserved_scenario = callback.data.split("list_scenario_")[1]
+    await callback.answer("✅ سناریو برای لیست رزروی انتخاب شد")
+    await callback.message.edit_text(f"📜 سناریوی انتخابی برای لیست رزروی:\n<b>{reserved_scenario}</b>")
 
 
-    
-# =========================
-# انتخاب گرداننده برای لیست رزروی
-# =========================
+# -----------------------------
+# هندلر: انتخاب گرداننده لیست رزروی
+# -----------------------------
+@dp.callback_query_handler(lambda c: c.data == "list_choose_god")
+async def list_choose_god(callback: types.CallbackQuery):
+    # لیست بازیکنان گروه (اینجا از players استفاده میکنیم یا لیست مخصوص رزروی)
+    if not players:
+        await callback.answer("⚠️ هیچ بازیکنی برای انتخاب گرداننده وجود ندارد", show_alert=True)
+        return
 
-# وقتی کاربر روی دکمه "🙋‍♂️ گرداننده" بزند
-@dp.callback_query_handler(lambda c: c.data == "choose_god")
-async def choose_god_for_list(callback: types.CallbackQuery):
-    # در اینجا ساده‌ترین حالت: گرداننده همان کسی است که دکمه را زده
-    list_settings["god"] = callback.from_user.full_name
-    await callback.answer(f"✅ گرداننده «{callback.from_user.full_name}» انتخاب شد.", show_alert=True)
+    kb = InlineKeyboardMarkup(row_width=2)
+    for p in players:
+        # فرض: players شامل dict مثل {"id":..., "name":...}
+        kb.add(InlineKeyboardButton(p["name"], callback_data=f"list_god_{p['id']}"))
 
-    # بعد از انتخاب، برگردیم به منوی تنظیمات
-    kb = InlineKeyboardMarkup(row_width=1)
-    kb.add(InlineKeyboardButton("📜 سناریو", callback_data="choose_scenario"))
-    kb.add(InlineKeyboardButton("🙋‍♂️ گرداننده", callback_data="choose_god"))
-    kb.add(InlineKeyboardButton("📝 ایجاد لیست", callback_data="create_list"))
+    await callback.message.edit_text("👤 یک بازیکن را به عنوان گرداننده لیست رزروی انتخاب کنید:", reply_markup=kb)
 
-    await callback.message.edit_text("⚙️ تنظیمات لیست:", reply_markup=kb)
+
+@dp.callback_query_handler(lambda c: c.data.startswith("list_god_"))
+async def list_set_god(callback: types.CallbackQuery):
+    global reserved_god
+    god_id = int(callback.data.split("list_god_")[1])
+
+    # پیدا کردن نام
+    god_name = None
+    for p in players:
+        if p["id"] == god_id:
+            god_name = p["name"]
+            break
+
+    reserved_god = {"id": god_id, "name": god_name}
+    await callback.answer("✅ گرداننده برای لیست رزروی انتخاب شد")
+    await callback.message.edit_text(f"👤 گرداننده لیست رزروی:\n<b>{god_name}</b>")
 
 #=========================
 # ساخت لیست
 #=========================
-@dp.callback_query_handler(lambda c: c.data == "create_list")
-async def create_list_handler(callback: types.CallbackQuery):
-    from persiantools.jdatetime import JalaliDate
-    today = JalaliDate.today().strftime("%Y/%m/%d")
+@dp.callback_query_handler(lambda c: c.data == "list_create")
+async def create_reserved_list(callback: types.CallbackQuery):
+    global reserved_scenario, reserved_god, reserved_list
 
-    scenario = list_settings.get("scenario") or "❌ انتخاب نشده"
-    god = list_settings.get("god") or "❌ انتخاب نشده"
+    if not reserved_scenario:
+        await callback.answer("⚠️ لطفا اول سناریو را انتخاب کنید", show_alert=True)
+        return
+    if not reserved_god:
+        await callback.answer("⚠️ لطفا اول گرداننده را انتخاب کنید", show_alert=True)
+        return
 
-    text = f"""༄
+    # تاریخ شمسی امروز
+    today_date = JalaliDatetime.today().strftime("%Y/%m/%d")
 
-Mafia Nights
+    # متن لیست
+    text = (
+        "༄\n\n"
+        "Mafia Nights\n\n"
+        f"Time : 21:00\n"
+        f"Date : {today_date}\n"
+        f"Scenario : {reserved_scenario}\n"
+        f"God : {reserved_god['name']}\n\n"
+        "◤◢◣◥◤◢◣◥◤◢◣◥◤◢◣◥◤◢◣◥\n\n"
+    )
 
-Time : 21:00
-Date : {today}
-Scenario : {scenario}
-God : {god}
+    # صندلی‌ها خالی هستند در ابتدا
+    reserved_list = [{"seat": i, "player": None} for i in range(1, 13)]  # پیش‌فرض ۱۲ نفر، میشه داینامیک کرد
 
-◤◢◣◥◤◢◣◥◤◢◣◥◤◢◣◥◤◢◣◥
-"""
+    for item in reserved_list:
+        text += f"{item['seat']:02d} --- خالی\n"
 
-    # ساخت جدول صندلی‌ها
-    seats = []
-    for i in range(1, 12):  # مثلا 11 نفر
-        player = list_settings["seats"].get(i)
-        if player:
-            name = player["name"]
-            seats.append(f"{i:02d} {name}")
-        else:
-            seats.append(f"{i:02d} ⬜ خالی")
+    text += "\n◤◢◣◥◤◢◣◥◤◢◣◥◤◢◣◥◤◢◣◥\n\n༄"
 
-    text += "\n".join(seats) + "\n\n◤◢◣◥◤◢◣◥◤◢◣◥◤◢◣◥◤◢◣◥\n\n༄"
-
-    # کیبورد صندلی‌ها
-    kb = InlineKeyboardMarkup(row_width=5)
-    for i in range(1, 12):
-        if i in list_settings["seats"]:
-            label = f"✅ {i}"
-        else:
-            label = str(i)
-        kb.insert(InlineKeyboardButton(label, callback_data=f"seat_{i}"))
+    # دکمه‌های صندلی‌ها
+    kb = InlineKeyboardMarkup(row_width=4)
+    for item in reserved_list:
+        kb.add(InlineKeyboardButton(f"{item['seat']:02d}", callback_data=f"reserve_seat_{item['seat']}"))
 
     await callback.message.edit_text(text, reply_markup=kb, parse_mode="HTML")
-    await callback.answer()
     
 #========================
 # رزرو در لیست
