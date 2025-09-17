@@ -226,63 +226,6 @@ async def manage_game_handler(callback: types.CallbackQuery):
         reply_markup=manage_game_keyboard(group_id)
     )
     await callback.answer()
-    
-
-# =========================
-# هندلرهای دستورات متنی گروه
-# =========================
-@dp.message_handler(lambda m: m.chat.type in ["group", "supergroup"])
-async def text_commands_handler(message: types.Message):
-    text = message.text.strip().lower()
-    user_id = message.from_user.id
-    group_id = message.chat.id
-
-    # -------------------
-    # دستور "جایگزین"
-    # -------------------
-    if text == "جایگزین":
-        global substitute_list
-        if group_id not in substitute_list:
-            substitute_list[group_id] = {}
-
-        if user_id not in substitute_list[group_id]:
-            substitute_list[group_id][user_id] = {"name": message.from_user.full_name}
-            await message.reply("✅ شما به لیست جایگزین اضافه شدید.")
-        else:
-            await message.reply("ℹ️ شما قبلاً در لیست جایگزین‌ها هستید.")
-
-    # -------------------
-    # دستور "تگ" → تگ کردن همه اعضای گروه
-    # -------------------
-    elif text == "تگ":
-        members = players if group_id in players else []
-        if not members:
-            await message.reply("👥 بازیکنی برای تگ کردن وجود ندارد.")
-            return
-
-        tags = " ".join([f"<a href='tg://user?id={pid}'>🟢</a>" for pid in members])
-        await message.reply(f"📢 تگ همه اعضا:\n{tags}", parse_mode="HTML")
-
-    # -------------------
-    # دستور "تگ لیست" → فقط بازیکنان حاضر
-    # -------------------
-    elif text == "تگ لیست":
-        members = players if group_id in players else []
-        if not members:
-            await message.reply("👥 بازیکنی در لیست بازی وجود ندارد.")
-            return
-
-        tags = " ".join([f"<a href='tg://user?id={pid}'>🟢</a>" for pid in members])
-        await message.reply(f"📢 تگ لیست بازیکنان:\n{tags}", parse_mode="HTML")
-
-    # -------------------
-    # دستور "تگ ادمین" → فقط مدیران گروه
-    # -------------------
-    elif text == "تگ ادمین":
-        admins = await bot.get_chat_administrators(group_id)
-        tags = " ".join([f"<a href='tg://user?id={admin.user.id}'>👮</a>" for admin in admins])
-        await message.reply(f"📢 تگ مدیران گروه:\n{tags}", parse_mode="HTML")
-
 
 
 # ======================
@@ -1985,14 +1928,61 @@ async def challenge_choice(callback: types.CallbackQuery):
     await callback.answer()
 
 
+# =========================
+# هندلرهای دستورات متنی گروه
+# =========================
+@dp.message_handler(lambda m: m.chat.type in ["group", "supergroup"])
+async def text_commands_handler(message: types.Message):
+    text = message.text.strip().lower()
+    user_id = message.from_user.id
+    group_id = message.chat.id
 
-#===============
-# نوع چالش
-#===============
+    # -------------------
+    # دستور "جایگزین"
+    # -------------------
+    if text == "جایگزین":
+        global substitute_list
+        if group_id not in substitute_list:
+            substitute_list[group_id] = {}
 
-#===============
-# انتخاب چالش
-#===============
+        if user_id not in substitute_list[group_id]:
+            substitute_list[group_id][user_id] = {"name": message.from_user.full_name}
+            await message.reply("✅ شما به لیست جایگزین اضافه شدید.")
+        else:
+            await message.reply("ℹ️ شما قبلاً در لیست جایگزین‌ها هستید.")
+
+    # -------------------
+    # دستور "تگ" → تگ کردن همه اعضای گروه
+    # -------------------
+    elif text == "تگ":
+        members = players if group_id in players else []
+        if not members:
+            await message.reply("👥 بازیکنی برای تگ کردن وجود ندارد.")
+            return
+
+        tags = " ".join([f"<a href='tg://user?id={pid}'>🟢</a>" for pid in members])
+        await message.reply(f"📢 تگ همه اعضا:\n{tags}", parse_mode="HTML")
+
+    # -------------------
+    # دستور "تگ لیست" → فقط بازیکنان حاضر
+    # -------------------
+    elif text == "تگ لیست":
+        members = players if group_id in players else []
+        if not members:
+            await message.reply("👥 بازیکنی در لیست بازی وجود ندارد.")
+            return
+
+        tags = " ".join([f"<a href='tg://user?id={pid}'>🟢</a>" for pid in members])
+        await message.reply(f"📢 تگ لیست بازیکنان:\n{tags}", parse_mode="HTML")
+
+    # -------------------
+    # دستور "تگ ادمین" → فقط مدیران گروه
+    # -------------------
+    elif text == "تگ ادمین":
+        admins = await bot.get_chat_administrators(group_id)
+        tags = " ".join([f"<a href='tg://user?id={admin.user.id}'>👮</a>" for admin in admins])
+        await message.reply(f"📢 تگ مدیران گروه:\n{tags}", parse_mode="HTML")
+
 
 # ======================
 # استارتاپ
