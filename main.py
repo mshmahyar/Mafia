@@ -343,31 +343,49 @@ async def list_choose_scenario(callback: types.CallbackQuery):
 
     await callback.message.edit_text("📜 یک سناریو برای لیست رزروی انتخاب کنید:", reply_markup=kb)
 
+@dp.callback_query_handler(lambda c: c.data == "list_choose_god")
+async def list_choose_god(callback: types.CallbackQuery):
+    global reserved_list
 
-@dp.callback_query_handler(lambda c: c.data.startswith("list_scenario_"))
-async def list_set_scenario(callback: types.CallbackQuery):
-    global reserved_scenario
-    reserved_scenario = callback.data.split("list_scenario_")[1]
-    await callback.answer("✅ سناریو برای لیست رزروی انتخاب شد")
-    await callback.message.edit_text(f"📜 سناریوی انتخابی برای لیست رزروی:\n<b>{reserved_scenario}</b>")
+    if not reserved_list or all(s["player"] is None for s in reserved_list):
+        await callback.answer("⚠️ هنوز هیچ بازیکنی در لیست رزروی ثبت نشده", show_alert=True)
+        return
+
+    kb = InlineKeyboardMarkup(row_width=2)
+    for s in reserved_list:
+        if s["player"]:
+            kb.add(InlineKeyboardButton(s["player"]["name"], callback_data=f"list_god_{s['player']['id']}"))
+
+    await callback.message.edit_text("👤 یک بازیکن را به عنوان گرداننده لیست رزروی انتخاب کنید:", reply_markup=kb)
+
+
 
 
 # -----------------------------
 # هندلر: انتخاب گرداننده لیست رزروی
 # -----------------------------
+# -----------------------------
+# هندلر: انتخاب گرداننده لیست رزروی از بین مدیران گروه
+# -----------------------------
 @dp.callback_query_handler(lambda c: c.data == "list_choose_god")
 async def list_choose_god(callback: types.CallbackQuery):
-    # لیست بازیکنان گروه (اینجا از players استفاده میکنیم یا لیست مخصوص رزروی)
-    if not players:
-        await callback.answer("⚠️ هیچ بازیکنی برای انتخاب گرداننده وجود ندارد", show_alert=True)
+    chat_id = callback.message.chat.id
+    admins = await bot.get_chat_administrators(chat_id)
+
+    if not admins:
+        await callback.answer("⚠️ هیچ مدیری یافت نشد", show_alert=True)
         return
 
     kb = InlineKeyboardMarkup(row_width=2)
-    for p in players:
-        # فرض: players شامل dict مثل {"id":..., "name":...}
-        kb.add(InlineKeyboardButton(p["name"], callback_data=f"list_god_{p['id']}"))
+    for admin in admins:
+        user = admin.user
+        name = user.full_name
+        kb.add(InlineKeyboardButton(name, callback_data=f"list_god_{user.id}"))
 
-    await callback.message.edit_text("👤 یک بازیکن را به عنوان گرداننده لیست رزروی انتخاب کنید:", reply_markup=kb)
+    await callback.message.edit_text(
+        "👤 یک مدیر را به عنوان گرداننده لیست رزروی انتخاب کنید:",
+        reply_markup=kb
+    )
 
 
 @dp.callback_query_handler(lambda c: c.data.startswith("list_god_"))
@@ -375,16 +393,30 @@ async def list_set_god(callback: types.CallbackQuery):
     global reserved_god
     god_id = int(callback.data.split("list_god_")[1])
 
-    # پیدا کردن نام
+    # گرفتن اطلاعات کاربر
+    chat_id = callback.message.chat.id
+    admins = await bot.get_chat_administrators(chat_id)
     god_name = None
-    for p in players:
-        if p["id"] == god_id:
-            god_name = p["name"]
+    for admin in admins:
+        if admin.user.id == god_id:
+            god_name = admin.user.full_name
             break
 
     reserved_god = {"id": god_id, "name": god_name}
     await callback.answer("✅ گرداننده برای لیست رزروی انتخاب شد")
-    await callback.message.edit_text(f"👤 گرداننده لیست رزروی:\n<b>{god_name}</b>")
+
+    # بازگشت به منوی تنظیمات
+    kb = InlineKeyboardMarkup(row_width=1)
+    kb.add(InlineKeyboardButton("📜 سناریو", callback_data="list_choose_scenario"))
+    kb.add(InlineKeyboardButton("🙋‍♂️ گرداننده", callback_data="list_choose_god"))
+    kb.add(InlineKeyboardButton("📝 ایجاد لیست", callback_data="list_create"))
+
+    await callback.message.edit_text(
+        f"👤 گرداننده لیست رزروی:\n<b>{god_name}</b>\n\n⚙️ تنظیمات لیست:",
+        reply_markup=kb,
+        parse_mode="HTML"
+    )
+
 
 #=========================
 # ساخت لیست
