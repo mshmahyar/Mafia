@@ -54,6 +54,7 @@ post_challenge_advance = False   # وقتی اجرای چالش 'بعد' باش�
 substitute_list = {}  # group_id: {user_id: {"name": name}}
 players_in_game = {}  # group_id: {seat_number: {"id": user_id, "name": name, "role": role}}
 removed_players = {}  # group_id: {seat_number: {"id": user_id, "name": name, "roles": []}}
+last_role_map = {}
 
 #=======================
 # داده های ریست در شروع روز
@@ -94,24 +95,37 @@ async def manage_game_handler(callback: types.CallbackQuery):
 # ======================
 @dp.callback_query_handler(lambda c: c.data == "list_players")
 async def list_players_handler(callback: types.CallbackQuery):
+    # فقط پیوی
     if callback.message.chat.type != "private":
         await callback.answer()
         return
 
-    global players  # فرض: players لیستی از دیکشنری بازیکنان فعلیه
-    if not players:
-        await callback.message.answer("👥 هیچ بازیکنی در بازی نیست.")
+    # چک کن که group_chat_id ست شده باشه
+    if not group_chat_id:
+        await callback.message.answer("🚫 هنوز لابی/گروهی ست نشده است.")
         await callback.answer()
         return
 
-    text = "👥 لیست بازیکنان:\n\n"
-    for p in players:
-        text += f"{p['seat']} - <a href='tg://user?id={p['id']}'>{p['name']}</a>\n"
+    # استفاده از player_slots برای ترتیب صندلی‌ها
+    seats = sorted(player_slots.items())  # [(seat, user_id), ...]
+    if not seats:
+        # اگر هیچ صندلی‌ای ثبت نشده، fallback به players (اگر players دیکشنریه)
+        if isinstance(players, dict) and players:
+            text = "👥 لیست بازیکنان (بدون صندلی):\n"
+            for i, (uid, name) in enumerate(players.items(), start=1):
+                text += f"{i}. <a href='tg://user?id={uid}'>{html.escape(name)}</a>\n"
+        else:
+            await callback.message.answer("👥 هیچ بازیکنی ثبت نشده است.")
+            await callback.answer()
+            return
+    else:
+        text = "👥 لیست بازیکنان (بر اساس شماره صندلی):\n"
+        for seat, uid in seats:
+            name = players.get(uid, "❓")
+            text += f"{seat}. <a href='tg://user?id={uid}'>{html.escape(name)}</a>\n"
 
     await callback.message.answer(text, parse_mode="HTML")
     await callback.answer()
-
-    
 
 # ======================
 #  لود سناریوها
@@ -333,26 +347,68 @@ async def list_players_handler(callback: types.CallbackQuery):
 #=======================
 @dp.callback_query_handler(lambda c: c.data == "resend_roles")
 async def resend_roles_handler(callback: types.CallbackQuery):
-    if not players:
-        await callback.message.answer("🚫 بازیکنی برای ارسال نقش وجود ندارد.")
+    if callback.message.chat.type != "private":
         await callback.answer()
         return
 
-    for pid in players:
-        role = roles.get(pid, "❓")
-        try:
-            await bot.send_message(pid, f"🎭 نقش شما: {role}")
-        except Exception:
-            pass
+    if not group_chat_id:
+        await callback.message.answer("🚫 هنوز هیچ بازی فعالی وجود ندارد.")
+        await callback.answer()
+        return
 
-    text = "📜 لیست نقش‌ها:\n\n"
-    for idx, pid in enumerate(players, start=1):
-        role = roles.get(pid, "❓")
-        text += f"{idx} - <a href='tg://user?id={pid}'>بازیکن {idx}</a>: {role}\n"
+    # بررسی وجود نقش‌های قبلی
+    global last_role_map
+    if not last_role_map:
+        await callback.message.answer("⚠️ نقش‌ها هنوز پخش نشده‌اند؛ ابتدا «پخش نقش» در گروه را بزنید.")
+        await callback.answer()
+        return
+
+    # ارسال نقش به هر بازیکن بر اساس player_slots یا players
+    # اول تلاش می‌کنیم بر اساس player_slots (صندلی‌ها)
+    sent = 0
+    if player_slots:
+        for seat in sorted(player_slots.keys()):
+            uid = player_slots[seat]
+            role = last_role_map.get(uid, "❓")
+            try:
+                await bot.send_message(uid, f"🎭 نقش شما: {html.escape(str(role))}")
+                sent += 1
+            except Exception as e:
+                logging.warning("⚠️ ارسال نقش به %s خطا: %s", uid, e)
+    else:
+        # fallback: اگر player_slots خالیست، از players (دیکشنری user_id->name) استفاده کن
+        if isinstance(players, dict):
+            for uid in players.keys():
+                role = last_role_map.get(uid, "❓")
+                try:
+                    await bot.send_message(uid, f"🎭 نقش شما: {html.escape(str(role))}")
+                    sent += 1
+                except Exception as e:
+                    logging.warning("⚠️ ارسال نقش به %s خطا: %s", uid, e)
+
+    # ارسال لیست نقش‌ها برای گرداننده (پیام خلاصه)
+    if sent == 0:
+        await callback.message.answer("⚠️ هیچ پیامی ارسال نشد (شاید بازیکنانی پیویشان بسته است).")
+        await callback.answer()
+        return
+
+    # ساخت متن خلاصه (بر اساس player_slotsِ فعلی)
+    text = "📜 لیست نقش‌ها:\n"
+    if player_slots:
+        for seat in sorted(player_slots.keys()):
+            uid = player_slots[seat]
+            role = last_role_map.get(uid, "❓")
+            name = players.get(uid, "❓")
+            text += f"{seat}. <a href='tg://user?id={uid}'>{html.escape(name)}</a> — {html.escape(str(role))}\n"
+    else:
+        # fallback
+        for i, uid in enumerate(players.keys(), start=1):
+            role = last_role_map.get(uid, "❓")
+            name = players.get(uid, "❓")
+            text += f"{i}. <a href='tg://user?id={uid}'>{html.escape(name)}</a> — {html.escape(str(role))}\n"
 
     await callback.message.answer(text, parse_mode="HTML")
-    await callback.answer("📤 نقش‌ها ارسال شدند ✅")
-
+    await callback.answer(f"✅ نقش‌ها به {sent} بازیکن ارسال شدند.")
 
 #=======================
 # جایگزین بازیکن
@@ -403,76 +459,194 @@ async def choose_substitute(callback: types.CallbackQuery):
 # -----------------------------
 # جایگزینی بازیکن
 # -----------------------------
-async def replace_player(callback: types.CallbackQuery):
-    parts = callback.data.split("_")
-    sub_id = int(parts[1])
-    seat = int(parts[2])
-    group_id = int(parts[3])
-
-    sub_data = substitute_list[group_id].pop(sub_id, None)
-    if not sub_data:
-        await callback.message.answer("⚠️ خطا: جایگزین پیدا نشد.")
+@dp.callback_query_handler(lambda c: c.data == "replace_player")
+async def replace_player_list_handler(callback: types.CallbackQuery):
+    if callback.message.chat.type != "private":
+        await callback.answer()
         return
 
-    # نگهداری نقش قبلی
-    old_player = players_in_game[group_id][seat]
-    role = old_player["role"]
-
-    # جایگزینی
-    players_in_game[group_id][seat] = {"id": sub_id, "name": sub_data["name"], "role": role}
-
-    await callback.message.answer(f"✅ بازیکن {old_player['name']} با {sub_data['name']} جایگزین شد.")
-
-#-------------------------------------------
-
-@dp.callback_query_handler(lambda c: c.data == "replace_player")
-async def replace_player_handler(callback: types.CallbackQuery):
-    if not substitute_list:
+    # substitute_list در فایل اصلی شکل: {group_id: {user_id: {"name": name}}}
+    subs = substitute_list.get(group_chat_id, {})
+    if not subs:
         await callback.message.answer("🚫 لیست جایگزین‌ها خالی است.")
         await callback.answer()
         return
 
-    text = "🔄 لیست جایگزین‌ها:\n\n"
-    for idx, pid in enumerate(substitute_list, start=1):
-        text += f"{idx} - <a href='tg://user?id={pid}'>بازیکن جایگزین {idx}</a>\n"
+    kb = InlineKeyboardMarkup(row_width=1)
+    for uid, info in subs.items():
+        kb.add(InlineKeyboardButton(html.escape(info.get("name","❓")), callback_data=f"choose_sub_{uid}"))
 
-    await callback.message.answer(text, parse_mode="HTML")
+    await callback.message.answer("👥 لیست جایگزین‌ها:", reply_markup=kb)
     await callback.answer()
 
+
+@dp.callback_query_handler(lambda c: c.data.startswith("choose_sub_"))
+async def choose_substitute_for_replace(callback: types.CallbackQuery):
+    uid_sub = int(callback.data.replace("choose_sub_", ""))
+    # نمایش بازیکنان فعلی برای انتخاب جایگزینی
+    current = {seat: players.get(uid, "❓") for seat, uid in player_slots.items()}
+    if not current:
+        await callback.message.answer("🚫 هیچ بازیکنی در بازی نیست.")
+        await callback.answer()
+        return
+
+    kb = InlineKeyboardMarkup(row_width=1)
+    for seat, name in sorted(current.items()):
+        kb.add(InlineKeyboardButton(f"{seat}. {html.escape(name)}", callback_data=f"do_replace_{uid_sub}_{seat}"))
+
+    await callback.message.answer("👤 بازیکن جایگزین، بازیکن فعلی را انتخاب کنید:", reply_markup=kb)
+    await callback.answer()
+
+
+@dp.callback_query_handler(lambda c: c.data.startswith("do_replace_"))
+async def do_replace_handler(callback: types.CallbackQuery):
+    parts = callback.data.split("_")
+    uid_sub = int(parts[2])
+    seat = int(parts[3])
+
+    subs = substitute_list.get(group_chat_id, {})
+    sub_info = subs.pop(uid_sub, None)
+    if not sub_info:
+        await callback.message.answer("⚠️ جایگزینی پیدا نشد.")
+        await callback.answer()
+        return
+
+    # جایگزینی: نگه داشتن نام و نقش (اگر نقش‌ها در last_role_map موجوده)
+    old_uid = player_slots.get(seat)
+    old_name = players.pop(old_uid, "❓") if old_uid in players else "❓"
+
+    # قرار دادن جایگزین
+    players[uid_sub] = sub_info.get("name", "❓")
+    player_slots[seat] = uid_sub
+
+    # اگر last_role_map داشتیم، جایگزین رو هم با نقش قدیمی مرتبط کن (انتقال نقش)
+    global last_role_map
+    if old_uid and last_role_map.get(old_uid):
+        last_role_map[uid_sub] = last_role_map.pop(old_uid)
+
+    await callback.message.answer(f"✅ بازیکن {html.escape(old_name)} با {html.escape(players[uid_sub])} جایگزین شد (صندلی {seat}).")
+    await callback.answer()
 
 #=======================
 # حذف بازیکن
 #=======================
 @dp.callback_query_handler(lambda c: c.data == "remove_player")
 async def remove_player_handler(callback: types.CallbackQuery):
-    if not players:
-        await callback.message.answer("🚫 هیچ بازیکنی برای حذف وجود ندارد.")
+    if callback.message.chat.type != "private":
         await callback.answer()
         return
 
-    kb = InlineKeyboardMarkup()
-    for idx, pid in enumerate(players, start=1):
-        kb.add(InlineKeyboardButton(f"{idx} - بازیکن {idx}", callback_data=f"remove_{pid}"))
+    if not group_chat_id:
+        await callback.message.answer("🚫 هنوز هیچ بازی فعالی وجود ندارد.")
+        await callback.answer()
+        return
 
-    await callback.message.answer("🗑 بازیکن مورد نظر را انتخاب کنید:", reply_markup=kb)
+    # اگر player_slots پر است: لیست بر اساس صندلی
+    if player_slots:
+        kb = InlineKeyboardMarkup(row_width=1)
+        for seat in sorted(player_slots.keys()):
+            uid = player_slots[seat]
+            name = players.get(uid, "❓")
+            kb.add(InlineKeyboardButton(f"{seat}. {html.escape(name)}", callback_data=f"confirm_remove_{seat}"))
+        await callback.message.answer("🗑 لطفاً بازیکنی که می‌خواهید حذف شود را انتخاب کنید:", reply_markup=kb)
+        await callback.answer()
+        return
+
+    # fallback: اگر فقط players دیکشنری است
+    if isinstance(players, dict) and players:
+        kb = InlineKeyboardMarkup(row_width=1)
+        for uid, name in players.items():
+            kb.add(InlineKeyboardButton(html.escape(name), callback_data=f"confirm_remove_uid_{uid}"))
+        await callback.message.answer("🗑 بازیکنی را انتخاب کنید:", reply_markup=kb)
+        await callback.answer()
+        return
+
+    await callback.message.answer("🚫 بازیکنی برای حذف وجود ندارد.")
     await callback.answer()
+
+
+# پردازش تایید حذف بر اساس صندلی
+@dp.callback_query_handler(lambda c: c.data.startswith("confirm_remove_"))
+async def remove_player_confirm(callback: types.CallbackQuery):
+    data = callback.data
+    # دو حالت: confirm_remove_{seat} یا confirm_remove_uid_{uid}
+    if data.startswith("confirm_remove_uid_"):
+        uid = int(data.replace("confirm_remove_uid_", ""))
+        # جستجو برای صندلی (اگر وجود داشته باشه)
+        seat = next((s for s, u in player_slots.items() if u == uid), None)
+    else:
+        seat = int(data.replace("confirm_remove_", ""))
+        uid = player_slots.get(seat)
+
+    if uid is None:
+        await callback.message.answer("⚠️ بازیکن پیدا نشد.")
+        await callback.answer()
+        return
+
+    # حذف از player_slots و players؛ و اضافه شدن به removed_players[group]
+    removed_players.setdefault(group_chat_id, {})[seat] = {"id": uid, "name": players.get(uid, "❓")}
+    # حذف از players dict اگر موجوده
+    try:
+        if uid in players:
+            del players[uid]
+    except Exception:
+        pass
+
+    if seat in player_slots:
+        del player_slots[seat]
+
+    await callback.message.answer(f"✅ بازیکن با آی‌دی {uid} حذف شد و به لیست خارج‌شده‌ها منتقل شد.")
+    await callback.answer()
+
+
 
 #=======================
 # تولد بازیکن
 #=======================
 @dp.callback_query_handler(lambda c: c.data == "player_birthday")
-async def player_birthday_handler(callback: types.CallbackQuery):
-    if not removed_players:
-        await callback.message.answer("🚫 بازیکنی برای تولد دوباره وجود ندارد.")
+async def birthday_player_handler(callback: types.CallbackQuery):
+    if callback.message.chat.type != "private":
         await callback.answer()
         return
 
-    kb = InlineKeyboardMarkup()
-    for seat, pid in removed_players.items():
-        kb.add(InlineKeyboardButton(f"{seat} - بازیکن", callback_data=f"revive_{pid}"))
+    if not group_chat_id:
+        await callback.message.answer("🚫 هنوز هیچ بازی فعالی وجود ندارد.")
+        await callback.answer()
+        return
 
-    await callback.message.answer("🎂 بازیکن مورد نظر برای تولد دوباره را انتخاب کنید:", reply_markup=kb)
+    removed = removed_players.get(group_chat_id, {})
+    if not removed:
+        await callback.message.answer("🚫 لیست بازیکنان خارج‌شده خالی است.")
+        await callback.answer()
+        return
+
+    kb = InlineKeyboardMarkup(row_width=1)
+    for seat, info in sorted(removed.items()):
+        kb.add(InlineKeyboardButton(f"{seat}. {html.escape(info.get('name','❓'))}", callback_data=f"confirm_revive_{seat}"))
+
+    await callback.message.answer("🎂 بازیکنی را که می‌خواهید بازگردانید انتخاب کنید:", reply_markup=kb)
     await callback.answer()
+
+
+@dp.callback_query_handler(lambda c: c.data.startswith("confirm_revive_"))
+async def birthday_player_confirm(callback: types.CallbackQuery):
+    seat = int(callback.data.replace("confirm_revive_", ""))
+    info = removed_players.get(group_chat_id, {}).pop(seat, None)
+    if not info:
+        await callback.message.answer("⚠️ موردی برای بازگرداندن پیدا نشد.")
+        await callback.answer()
+        return
+
+    uid = info["id"]
+    name = info.get("name", "❓")
+    # بازگرداندن به players و player_slots
+    players[uid] = name
+    player_slots[seat] = uid
+
+    await callback.message.answer(f"✅ بازیکن {html.escape(name)} با صندلی {seat} بازگردانده شد.")
+    await callback.answer()
+
+
 
 #=======================
 # لغو بازی
@@ -863,6 +1037,10 @@ async def distribute_roles_callback(callback: types.CallbackQuery):
 
     try:
         mapping = await distribute_roles()
+        # بعد از تولید نقش‌ها، نگهداریش توی متغیر سراسری
+        global last_role_map
+        last_role_map = mapping
+    
     except Exception as e:
         logging.exception("⚠️ مشکل در پخش نقش‌ها: %s", e)
         await callback.answer("❌ خطا در پخش نقش‌ها.", show_alert=True)
