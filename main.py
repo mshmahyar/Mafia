@@ -2164,19 +2164,35 @@ async def start_turn(seat, duration=DEFAULT_TURN_DURATION, is_challenge=False):
 # ======================
 @dp.callback_query_handler(lambda c: c.data == "start_turn")
 async def handle_start_turn(callback: types.CallbackQuery):
-    global moderator_id
+    global moderator_id, group_chat_id
 
+    user_id = callback.from_user.id
+
+    # اطمینان از اینکه گرداننده انتخاب شده
     if not moderator_id:
         await callback.answer("⚠️ گرداننده هنوز انتخاب نشده است.", show_alert=True)
         return
 
-    if callback.from_user.id != moderator_id:
+    # فقط گرداننده اجازه دارد دور را شروع کند
+    if user_id != moderator_id:
         await callback.answer("⚠️ فقط گرداننده می‌تواند دور را شروع کند.", show_alert=True)
         return
 
-    # ادامه شروع دور بازی
-    await start_turn_logic()
-    await callback.answer("🎭 دور بازی شروع شد!")
+    # شروع دور بازی (منطق بازی خودتان را اینجا فراخوانی کنید)
+    try:
+        await start_turn_logic()  # فانکشن شما برای شروع دور
+        await callback.answer("🎭 دور بازی شروع شد!")
+    except Exception as e:
+        logging.exception("❌ خطا در شروع دور بازی")
+        await callback.answer("⚠️ خطا در شروع دور.", show_alert=True)
+        return
+
+    # بروزرسانی لابی بعد از شروع دور
+    try:
+        await update_lobby()
+    except Exception as e:
+        logging.exception("⚠️ خطا در بروزرسانی لابی بعد از شروع دور")
+
 
 
 #================
