@@ -69,7 +69,7 @@ removed_players = {}  # group_id: {seat_number: {"id": user_id, "name": name, "r
 last_role_map = {}
 reserved_list = []       # لیست بازیکنان با صندلی‌ها
 reserved_scenario = None # سناریو انتخابی
-reserved_god = None      # گرداننده انتخابی
+reserved_god = None      #  انتخابی
 waiting_list = []  # لیست رزرو
 @dp.callback_query_handler(lambda c: c.data == "manage_game")
 
@@ -198,39 +198,6 @@ async def my_role_handler(message: types.Message):
         await message.reply(f"🔐 نقش شما: {html.escape(str(role))}")
     else:
         await message.reply("⚠️ هنوز نقشی برای شما اختصاص داده نشده یا بازی شروع نشده.")
-
-
-# =========================
-# شروع دور (فقط گرداننده) — متن گروه/پیوی
-# =========================
-@dp.message_handler(lambda m: m.text and m.text.strip() == "شروع دور")
-async def start_round_text_handler(message: types.Message):
-    global reserved_god, turn_order, current_turn_index, round_active, player_slots, DEFAULT_TURN_DURATION
-
-    user_id = message.from_user.id
-    # فقط گرداننده حق داره (مطابق درخواست قبلی)
-    if not reserved_god or user_id != reserved_god.get("id"):
-        await message.reply("⛔ فقط گرداننده می‌تواند دور را شروع کند.")
-        return
-
-    # همان منطق شروع دور که در هندلر callback داشتیم
-    if not globals().get("turn_order"):
-        seats_list = sorted((player_slots or {}).keys())
-        if not seats_list:
-            await message.reply("⚠️ هیچ بازیکنی در بازی نیست.")
-            return
-        turn_order = seats_list[:]  # همه بازیکن‌ها به ترتیب صندلی
-
-    round_active = True
-    current_turn_index = 0
-
-    first_seat = turn_order[current_turn_index]
-    # اگر تابع start_turn وجود داشته باشد آن را صدا بزن
-    if callable(globals().get("start_turn")):
-        await start_turn(first_seat, duration=globals().get("DEFAULT_TURN_DURATION", 30), is_challenge=False)
-        await message.reply("✅ دور جدید شروع شد.")
-    else:
-        await message.reply("⚠️ تابع شروع دور (start_turn) تعریف نشده است. لطفاً آن را بررسی کنید.")
 
 
 # =========================
