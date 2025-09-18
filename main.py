@@ -23,7 +23,7 @@ logging.basicConfig(level=logging.INFO)
 bot = Bot(token=API_TOKEN, parse_mode="HTML")
 dp = Dispatcher(bot)
 # فقط این گروه اجازه اجرای بازی داره
-ALLOWED_GROUP_ID = -1003080272814
+ALLOWED_GROUP_ID = -1001699002615
 
 
 # ======================
