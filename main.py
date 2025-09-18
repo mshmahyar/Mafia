@@ -1505,56 +1505,92 @@ async def leave_game_callback(callback: types.CallbackQuery):
 # =========================
 # بروزرسانی پیام لابی اصلی
 # =========================
-def update_lobby(group_id):
-    # دریافت اطلاعات لابی گروه
-    lobby = lobby_data.get(group_id, {})
+# ======================
+# بروزرسانی لابی
+# ======================
+async def update_lobby():
+    global lobby_message_id
+    if not group_chat_id or not lobby_message_id:
+        return
 
-    # دریافت سناریو انتخاب شده (اگر انتخاب نشده None خواهد بود)
-    scenario = lobby.get("scenario")
+    # ساخت متن لابی
+    text = f"📋 **لیست بازی:**\n"
+    text += f"سناریو: {selected_scenario or 'انتخاب نشده'}\n"
 
-    # متن سناریو
-    if not scenario:
-        scenario_text = "هیچ سناریویی انتخاب نشده است."
+    # نمایش گرداننده
+    if moderator_id:
+        try:
+            moderator = await bot.get_chat_member(group_chat_id, moderator_id)
+            text += f"گرداننده: {html.escape(moderator.user.full_name)}\n\n"
+        except Exception:
+            text += "گرداننده: انتخاب نشده\n\n"
     else:
-        scenario_text = f"سناریو انتخاب شده: {scenario}"
+        text += "گرداننده: انتخاب نشده\n\n"
 
-    # لیست بازیکنان
-    players = lobby.get("players", [])
+    # نمایش بازیکنان
     if players:
-        players_text = "\n".join([f"- {p}" for p in players])
+        for uid, name in players.items():
+            seat = next((s for s, u in player_slots.items() if u == uid), None)
+            seat_str = f" (صندلی {seat})" if seat else ""
+            text += f"- <a href='tg://user?id={uid}'>{html.escape(name)}</a>{seat_str}\n"
     else:
-        players_text = "هیچ بازیکنی هنوز وارد نشده است."
+        text += "هیچ بازیکنی وارد بازی نشده است.\n"
 
-    # متن کامل پیام لابی
-    lobby_message = f"🎲 لابی بازی\n\n{scenario_text}\n\n👥 بازیکنان:\n{players_text}"
+    kb = InlineKeyboardMarkup(row_width=5)
 
-    # ساخت کیبورد
-    kb = InlineKeyboardMarkup(row_width=1)
+    # ✅ دکمه‌های انتخاب صندلی
+    if selected_scenario:
+        max_players = len(scenarios[selected_scenario]["roles"])
+        for i in range(1, max_players + 1):
+            if i in player_slots:
+                player_name = players.get(player_slots[i], "❓")
+                kb.insert(InlineKeyboardButton(f"{i} ({player_name})", callback_data=f"slot_{i}"))
+            else:
+                kb.insert(InlineKeyboardButton(str(i), callback_data=f"slot_{i}"))
 
-    # دکمه‌های سناریو
-    for scen in scenarios.keys():
-        kb.add(InlineKeyboardButton(text=scen, callback_data=f"scenario_{scen}"))
+    # ✅ دکمه ورود/خروج با بررسی ظرفیت
+    if selected_scenario:
+        if len(players) < max_players:
+            kb.row(
+                InlineKeyboardButton("✅ ورود به بازی", callback_data="join_game"),
+                InlineKeyboardButton("❌ خروج از بازی", callback_data="leave_game"),
+            )
+        else:
+            kb.row(
+                InlineKeyboardButton("❌ خروج از بازی", callback_data="leave_game"),
+            )
+            text += "\n⚠️ ظرفیت بازی کامل است."
 
-    # دکمه‌های دیگر
-    kb.add(InlineKeyboardButton(text="لغو بازی ❌", callback_data="cancel_game"))
-    kb.add(InlineKeyboardButton(text="شروع بازی ▶️", callback_data="start_game"))
+    # ✅ دکمه لغو بازی فقط برای مدیران
+    if moderator_id and moderator_id in admins:
+        kb.add(InlineKeyboardButton("🚫 لغو بازی", callback_data="cancel_game"))
 
-    # ارسال یا ویرایش پیام لابی
-    if "message_id" in lobby:
-        bot.edit_message_text(
-            chat_id=group_id,
-            message_id=lobby["message_id"],
-            text=lobby_message,
-            reply_markup=kb
+    # ✅ دکمه شروع بازی در صورت کافی بودن بازیکنان
+    if selected_scenario and moderator_id:
+        min_players = scenarios[selected_scenario]["min_players"]
+        max_players = len(scenarios[selected_scenario]["roles"])
+        if min_players <= len(players) <= max_players:
+            kb.add(InlineKeyboardButton("🎭 پخش نقش", callback_data="distribute_roles"))
+
+    # 🔄 بروزرسانی پیام لابی
+    try:
+        if lobby_message_id:
+            await bot.edit_message_text(
+                text, chat_id=group_chat_id, message_id=lobby_message_id,
+                reply_markup=kb, parse_mode="HTML"
+            )
+        else:
+            msg = await bot.send_message(
+                group_chat_id, text, reply_markup=kb, parse_mode="HTML"
+            )
+            lobby_message_id = msg.message_id
+    except Exception as e:
+        logging.exception("⚠️ Failed to edit lobby, sending new message")
+        msg = await bot.send_message(
+            group_chat_id, text, reply_markup=kb, parse_mode="HTML"
         )
-    else:
-        msg = bot.send_message(
-            chat_id=group_id,
-            text=lobby_message,
-            reply_markup=kb
-        )
-        # ذخیره message_id برای ویرایش بعدی
-        lobby_data[group_id]["message_id"] = msg.message_id
+        lobby_message_id = msg.message_id
+
 
 # ======================
 # لغو بازی توسط مدیران
