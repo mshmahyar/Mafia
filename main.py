@@ -515,65 +515,58 @@ async def manage_game_handler(callback: types.CallbackQuery):
     await callback.answer()
 
 
-# ======================
-# انتخاب / لغو انتخاب صندلی
-# ======================
 # =========================
-# انتخاب صندلی در لابی
+# هندلر انتخاب / آزاد کردن صندلی در لابی اصلی
 # =========================
 @dp.callback_query_handler(lambda c: c.data.startswith("slot_"))
 async def handle_slot(callback: types.CallbackQuery):
+    global player_slots, players, scenario
+
     try:
         seat_num = int(callback.data.replace("slot_", ""))
         user_id = callback.from_user.id
         user_name = callback.from_user.full_name
 
-        global player_slots, players
+        # اطمینان از اینکه سناریو انتخاب شده
+        if not scenario or scenario not in scenarios:
+            await callback.answer("⚠️ ابتدا یک سناریو انتخاب کنید.", show_alert=True)
+            return
 
-        # اطمینان از ساختار
-        if "player_slots" not in globals():
-            player_slots = {}
-        if "players" not in globals():
-            players = {}
+        max_seats = len(scenarios[scenario]["roles"])
 
-        # ظرفیت بر اساس سناریو انتخابی
-        max_seats = 12  # پیش‌فرض
-        scenario_name = globals().get("reserved_scenario")
-        if scenario_name and scenario_name in scenarios:
-            max_seats = len(scenarios[scenario_name]["roles"])
-
-        # اگر ظرفیت پر شده و این کاربر هنوز جایی ننشسته
+        # اگر ظرفیت پر شده و این کاربر هنوز صندلی نداره
         if user_id not in player_slots.values() and len(player_slots) >= max_seats:
             await callback.answer("🚫 همه صندلی‌ها پر شده‌اند.", show_alert=True)
             return
 
-        # اگر همین کاربر قبلاً همین صندلی رو گرفته → آزادش کن
+        # اگر همین کاربر روی همین صندلی هست → آزاد کن
         if player_slots.get(seat_num) == user_id:
             del player_slots[seat_num]
-            await callback.answer(f"✅ صندلی {seat_num} آزاد شد")
+            await callback.answer(f"✅ صندلی {seat_num} آزاد شد.")
             await update_lobby()
             return
 
-        # اگر صندلی پره و متعلق به کسی دیگه است
+        # اگر صندلی پره و برای کس دیگه است
         if seat_num in player_slots and player_slots[seat_num] != user_id:
             await callback.answer("❌ این صندلی قبلاً رزرو شده است.", show_alert=True)
             return
 
-        # اگر کاربر جای دیگه نشسته، اون صندلی رو آزاد کن
+        # اگر کاربر جای دیگه نشسته، اول اون صندلی رو آزاد کن
         for s, uid in list(player_slots.items()):
             if uid == user_id and s != seat_num:
                 del player_slots[s]
 
-        # ثبت کاربر در صندلی انتخابی
+        # ثبت نهایی
         player_slots[seat_num] = user_id
         players[user_id] = user_name
 
-        await callback.answer(f"✅ صندلی {seat_num} برای شما رزرو شد")
+        await callback.answer(f"✅ صندلی {seat_num} برای شما رزرو شد.")
         await update_lobby()
 
     except Exception as e:
-        logging.exception("❌ خطا در هندلر صندلی")
+        logging.exception("❌ خطا در handle_slot")
         await callback.answer("⚠️ خطا در ثبت صندلی.", show_alert=True)
+
 
 # =======================
 # هندلر لیست جدید
@@ -1507,28 +1500,31 @@ async def leave_game_callback(callback: types.CallbackQuery):
     await callback.answer("✅ شما از بازی خارج شدید!")
     await update_lobby()
 
-# ======================
-# بروزرسانی لابی
-# ======================
+
 # =========================
-# بروزرسانی پیام لابی
+# بروزرسانی پیام لابی اصلی
 # =========================
 async def update_lobby():
-    global player_slots, players, lobby_message_id, reserved_scenario
+    global player_slots, players, lobby_message_id, scenario, group_chat_id
 
     try:
-        group_id = group_chat_id  # گروه اصلی بازی
-        if not group_id:
+        if not group_chat_id:
             return
 
-        # ظرفیت بر اساس سناریو
-        max_seats = 12  # پیش‌فرض
-        if reserved_scenario and reserved_scenario in scenarios:
-            max_seats = len(scenarios[reserved_scenario]["roles"])
+        # بررسی اینکه سناریو انتخاب شده باشه
+        if not scenario or scenario not in scenarios:
+            await bot.send_message(group_chat_id, "⚠️ سناریو انتخاب نشده است.")
+            return
 
-        # ساخت متن لابی
-        text = f"🎭 لابی بازی\n📜 سناریو: {reserved_scenario or '---'}\n"
-        text += f"👥 ظرفیت: {len(player_slots)}/{max_seats}\n\n"
+        # تعداد صندلی‌ها = تعداد نقش‌ها در سناریو
+        max_seats = len(scenarios[scenario]["roles"])
+
+        # متن لابی
+        text = (
+            "🎭 <b>لابی بازی</b>\n"
+            f"📜 سناریو: <b>{scenario}</b>\n"
+            f"👥 ظرفیت: {len(player_slots)}/{max_seats}\n\n"
+        )
 
         for seat in range(1, max_seats + 1):
             if seat in player_slots:
@@ -1538,7 +1534,7 @@ async def update_lobby():
             else:
                 text += f"{seat:02d}️⃣ --- خالی ---\n"
 
-        # ساخت کیبورد صندلی‌ها
+        # کیبورد صندلی‌ها
         kb = InlineKeyboardMarkup(row_width=4)
         for seat in range(1, max_seats + 1):
             if seat in player_slots:
@@ -1546,20 +1542,22 @@ async def update_lobby():
             else:
                 kb.insert(InlineKeyboardButton(f"{seat}", callback_data=f"slot_{seat}"))
 
-        # اگر پیام لابی قبلاً وجود داره → ویرایش
+        # ویرایش یا ارسال پیام
         if lobby_message_id:
             await bot.edit_message_text(
-                chat_id=group_id,
+                chat_id=group_chat_id,
                 message_id=lobby_message_id,
                 text=text,
-                reply_markup=kb
+                reply_markup=kb,
+                parse_mode="HTML"
             )
         else:
-            msg = await bot.send_message(group_id, text, reply_markup=kb)
+            msg = await bot.send_message(group_chat_id, text, reply_markup=kb, parse_mode="HTML")
             lobby_message_id = msg.message_id
 
     except Exception as e:
         logging.exception("❌ خطا در update_lobby")
+
 
 
 # ======================
