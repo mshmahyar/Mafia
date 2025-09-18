@@ -24,7 +24,7 @@ logging.basicConfig(level=logging.INFO)
 bot = Bot(token=API_TOKEN, parse_mode="HTML")
 dp = Dispatcher(bot)
 # فقط این گروه اجازه اجرای بازی داره
-ALLOWED_GROUP_ID = -1001699002615
+ALLOWED_GROUP_ID = -1002356353761
 
 
 # ======================
@@ -89,6 +89,215 @@ def get_jalali_today():
     now_tehran = datetime.datetime.now(tehran)
     jalali = jdatetime.datetime.fromgregorian(datetime=now_tehran)
     return jalali.strftime("%Y/%m/%d")
+
+
+# --- کمکی: اگر لیست مدیران گروه خالیه، آپدیت کن ---
+async def ensure_group_admins():
+    global group_admins, group_chat_id, bot
+    try:
+        if not group_chat_id:
+            return
+        if not globals().get("group_admins"):
+            admins = await bot.get_chat_administrators(group_chat_id)
+            group_admins = [a.user.id for a in admins]
+    except Exception:
+        # اگر خطا شد، بی‌صدا رد میشیم (فقط به شرطی که بعدا نیاز باشه دوباره تلاش کنیم)
+        group_admins = globals().get("group_admins", [])
+
+
+# =========================
+# صندلی من
+# =========================
+@dp.message_handler(lambda m: m.text and m.text.strip() == "صندلی من")
+async def my_seat_handler(message: types.Message):
+    global player_slots, group_chat_id
+
+    uid = message.from_user.id
+    # پیدا کردن صندلی از player_slots (seat -> uid)
+    seat = next((s for s, u in (player_slots or {}).items() if u == uid), None)
+
+    if seat is None:
+        await message.reply("⚠️ شما در بازی ثبت نشده‌اید یا هنوز صندلی به شما اختصاص نیافته.")
+    else:
+        await message.reply(f"🔹 شما در صندلی شماره {seat} قرار دارید.")
+
+
+# =========================
+# لیست صندلی
+# =========================
+@dp.message_handler(lambda m: m.text and m.text.strip() == "لیست صندلی")
+async def seats_list_handler(message: types.Message):
+    global player_slots, players, reserved_list, group_chat_id
+
+    # اگر بازی در حال اجراست از player_slots و players استفاده کن، در غیر اینصورت از reserved_list
+    text_lines = []
+    if player_slots:
+        for seat in sorted(player_slots.keys()):
+            uid = player_slots.get(seat)
+            name = players.get(uid, "❓") if uid else "---"
+            text_lines.append(f"{seat:02d}. {html.escape(name)}")
+    elif reserved_list:
+        for item in reserved_list:
+            name = item.get("player", {}).get("name") if item.get("player") else "---"
+            text_lines.append(f"{item['seat']:02d}. {html.escape(name if name else '---')}")
+    else:
+        await message.reply("🚫 هیچ لیست صندلی فعالی وجود ندارد.")
+        return
+
+    text = "📋 لیست صندلی‌ها:\n\n" + "\n".join(text_lines)
+    await message.reply(text)
+
+
+# =========================
+# نقش من (فقط در پیوی)
+# =========================
+@dp.message_handler(lambda m: m.text and m.text.strip() == "نقش من")
+async def my_role_handler(message: types.Message):
+    global last_role_map, group_chat_id
+
+    if message.chat.type != "private":
+        await message.reply("ℹ️ برای دریافت نقش، لطفاً در پیوی این پیام را ارسال کنید: «نقش من»")
+        return
+
+    uid = message.from_user.id
+    # نقش‌ها ممکنه در last_role_map یا player_roles ذخیره شده باشه
+    role = None
+    if globals().get("last_role_map"):
+        role = last_role_map.get(uid)
+    if not role and globals().get("player_roles"):
+        role = globals().get("player_roles").get(uid)
+
+    if role:
+        # نقش خصوصی به کاربر در پیوی ارسال می‌شود
+        await message.reply(f"🔐 نقش شما: {html.escape(str(role))}")
+    else:
+        await message.reply("⚠️ هنوز نقشی برای شما اختصاص داده نشده یا بازی شروع نشده.")
+
+
+# =========================
+# شروع دور (فقط گرداننده) — متن گروه/پیوی
+# =========================
+@dp.message_handler(lambda m: m.text and m.text.strip() == "شروع دور")
+async def start_round_text_handler(message: types.Message):
+    global reserved_god, turn_order, current_turn_index, round_active, player_slots, DEFAULT_TURN_DURATION
+
+    user_id = message.from_user.id
+    # فقط گرداننده حق داره (مطابق درخواست قبلی)
+    if not reserved_god or user_id != reserved_god.get("id"):
+        await message.reply("⛔ فقط گرداننده می‌تواند دور را شروع کند.")
+        return
+
+    # همان منطق شروع دور که در هندلر callback داشتیم
+    if not globals().get("turn_order"):
+        seats_list = sorted((player_slots or {}).keys())
+        if not seats_list:
+            await message.reply("⚠️ هیچ بازیکنی در بازی نیست.")
+            return
+        turn_order = seats_list[:]  # همه بازیکن‌ها به ترتیب صندلی
+
+    round_active = True
+    current_turn_index = 0
+
+    first_seat = turn_order[current_turn_index]
+    # اگر تابع start_turn وجود داشته باشد آن را صدا بزن
+    if callable(globals().get("start_turn")):
+        await start_turn(first_seat, duration=globals().get("DEFAULT_TURN_DURATION", 30), is_challenge=False)
+        await message.reply("✅ دور جدید شروع شد.")
+    else:
+        await message.reply("⚠️ تابع شروع دور (start_turn) تعریف نشده است. لطفاً آن را بررسی کنید.")
+
+
+# =========================
+# لیست بازیکنان (فقط گرداننده یا مدیران)
+# =========================
+@dp.message_handler(lambda m: m.text and m.text.strip() == "لیست بازیکنان")
+async def show_players_handler(message: types.Message):
+    global group_chat_id, reserved_god, players, player_slots, group_admins, bot
+
+    # در گروه: بررسی اینکه فرستنده ادمین هست یا نه
+    is_allowed = False
+    uid = message.from_user.id
+
+    # اگر فرستنده گرداننده باشه اجازه بده
+    if reserved_god and uid == reserved_god.get("id"):
+        is_allowed = True
+    else:
+        # اگر پیام در گروه باشه، چک کن او ادمین است
+        if message.chat.type in ["group", "supergroup"]:
+            member = await bot.get_chat_member(message.chat.id, uid)
+            if member.status in ["creator", "administrator"]:
+                is_allowed = True
+        else:
+            # اگر در پیویه، سعی کن group_admins رو آپدیت کنی و چک کن
+            await ensure_group_admins()
+            if uid in (group_admins or []):
+                is_allowed = True
+
+    if not is_allowed:
+        await message.reply("⛔ فقط گرداننده یا مدیران گروه می‌توانند لیست بازیکنان را مشاهده کنند.")
+        return
+
+    # ساخت متن لیست بازیکنان
+    if player_slots:
+        lines = []
+        for seat in sorted(player_slots.keys()):
+            uid = player_slots.get(seat)
+            name = players.get(uid, "❓") if uid else "---"
+            lines.append(f"{seat:02d}. {html.escape(name)}")
+        text = "📜 لیست بازیکنان:\n\n" + "\n".join(lines)
+    else:
+        text = "🚫 هیچ بازیکنی در بازی ثبت نشده است."
+
+    await message.reply(text)
+
+
+# =========================
+# وضعیت بازی
+# =========================
+@dp.message_handler(lambda m: m.text and m.text.strip() == "وضعیت بازی")
+async def game_status_handler(message: types.Message):
+    global group_chat_id, players, player_slots, reserved_list, reserved_scenario, round_active, turn_order
+
+    num_players = len(players) if globals().get("players") else 0
+    seats_total = None
+    if globals().get("reserved_list"):
+        seats_total = len(reserved_list)
+    else:
+        try:
+            if reserved_scenario:
+                seats_total = len(scenarios[reserved_scenario]["roles"])
+        except Exception:
+            seats_total = None
+
+    text = "🔎 وضعیت بازی:\n\n"
+    text += f"تعداد بازیکنان ثبت‌شده: {num_players}\n"
+    text += f"مجموع صندلی‌ها: {seats_total if seats_total is not None else '---'}\n"
+    text += f"سناریو: {reserved_scenario or '---'}\n"
+    text += f"وضعیت دور: {'فعال' if round_active else 'غیرفعال'}\n"
+    text += f"ترتیب نوبت: {len(turn_order) if globals().get('turn_order') else 0}\n"
+
+    await message.reply(text)
+
+
+# =========================
+# راهنما / help (عمومی)
+# =========================
+@dp.message_handler(lambda m: m.text and m.text.strip() in ["راهنما", "/help"])
+async def help_handler(message: types.Message):
+    help_text = (
+        "📚 راهنمای دستورات ربات:\n\n"
+        "برای همه:\n"
+        " - صندلی من : نمایش شماره صندلی شما\n"
+        " - لیست صندلی : نمایش لیست صندلی‌ها و اسامی\n"
+        " - نقش من : (در پیوی) دریافت نقش شما\n"
+        " - وضعیت بازی : اطلاعات کلی درباره بازی\n\n"
+        "برای گرداننده / مدیران:\n"
+        " - شروع دور : شروع نوبت (فقط گرداننده)\n"
+        " - لیست بازیکنان : نمایش نام و صندلی‌ها (مدیر یا گرداننده)\n\n"
+        "ثبت / حذف جایگزین‌ها و خروج و دیگر دستورات:\n"
+        " - جایگزین / لغو جایگزین / لیست جایگزین (همانطور که قبلاً اضافه شده‌اند)\n"
+    )
+    await message.reply(help_text)
 
 # ======================
 # 🎮 مدیریت بازی در پیوی
@@ -2360,213 +2569,7 @@ async def text_commands_handler(message: types.Message):
     return
     
 
-# --- کمکی: اگر لیست مدیران گروه خالیه، آپدیت کن ---
-async def ensure_group_admins():
-    global group_admins, group_chat_id, bot
-    try:
-        if not group_chat_id:
-            return
-        if not globals().get("group_admins"):
-            admins = await bot.get_chat_administrators(group_chat_id)
-            group_admins = [a.user.id for a in admins]
-    except Exception:
-        # اگر خطا شد، بی‌صدا رد میشیم (فقط به شرطی که بعدا نیاز باشه دوباره تلاش کنیم)
-        group_admins = globals().get("group_admins", [])
 
-
-# =========================
-# صندلی من
-# =========================
-@dp.message_handler(lambda m: m.text and m.text.strip() == "صندلی من")
-async def my_seat_handler(message: types.Message):
-    global player_slots, group_chat_id
-
-    uid = message.from_user.id
-    # پیدا کردن صندلی از player_slots (seat -> uid)
-    seat = next((s for s, u in (player_slots or {}).items() if u == uid), None)
-
-    if seat is None:
-        await message.reply("⚠️ شما در بازی ثبت نشده‌اید یا هنوز صندلی به شما اختصاص نیافته.")
-    else:
-        await message.reply(f"🔹 شما در صندلی شماره {seat} قرار دارید.")
-
-
-# =========================
-# لیست صندلی
-# =========================
-@dp.message_handler(lambda m: m.text and m.text.strip() == "لیست صندلی")
-async def seats_list_handler(message: types.Message):
-    global player_slots, players, reserved_list, group_chat_id
-
-    # اگر بازی در حال اجراست از player_slots و players استفاده کن، در غیر اینصورت از reserved_list
-    text_lines = []
-    if player_slots:
-        for seat in sorted(player_slots.keys()):
-            uid = player_slots.get(seat)
-            name = players.get(uid, "❓") if uid else "---"
-            text_lines.append(f"{seat:02d}. {html.escape(name)}")
-    elif reserved_list:
-        for item in reserved_list:
-            name = item.get("player", {}).get("name") if item.get("player") else "---"
-            text_lines.append(f"{item['seat']:02d}. {html.escape(name if name else '---')}")
-    else:
-        await message.reply("🚫 هیچ لیست صندلی فعالی وجود ندارد.")
-        return
-
-    text = "📋 لیست صندلی‌ها:\n\n" + "\n".join(text_lines)
-    await message.reply(text)
-
-
-# =========================
-# نقش من (فقط در پیوی)
-# =========================
-@dp.message_handler(lambda m: m.text and m.text.strip() == "نقش من")
-async def my_role_handler(message: types.Message):
-    global last_role_map, group_chat_id
-
-    if message.chat.type != "private":
-        await message.reply("ℹ️ برای دریافت نقش، لطفاً در پیوی این پیام را ارسال کنید: «نقش من»")
-        return
-
-    uid = message.from_user.id
-    # نقش‌ها ممکنه در last_role_map یا player_roles ذخیره شده باشه
-    role = None
-    if globals().get("last_role_map"):
-        role = last_role_map.get(uid)
-    if not role and globals().get("player_roles"):
-        role = globals().get("player_roles").get(uid)
-
-    if role:
-        # نقش خصوصی به کاربر در پیوی ارسال می‌شود
-        await message.reply(f"🔐 نقش شما: {html.escape(str(role))}")
-    else:
-        await message.reply("⚠️ هنوز نقشی برای شما اختصاص داده نشده یا بازی شروع نشده.")
-
-
-# =========================
-# شروع دور (فقط گرداننده) — متن گروه/پیوی
-# =========================
-@dp.message_handler(lambda m: m.text and m.text.strip() == "شروع دور")
-async def start_round_text_handler(message: types.Message):
-    global reserved_god, turn_order, current_turn_index, round_active, player_slots, DEFAULT_TURN_DURATION
-
-    user_id = message.from_user.id
-    # فقط گرداننده حق داره (مطابق درخواست قبلی)
-    if not reserved_god or user_id != reserved_god.get("id"):
-        await message.reply("⛔ فقط گرداننده می‌تواند دور را شروع کند.")
-        return
-
-    # همان منطق شروع دور که در هندلر callback داشتیم
-    if not globals().get("turn_order"):
-        seats_list = sorted((player_slots or {}).keys())
-        if not seats_list:
-            await message.reply("⚠️ هیچ بازیکنی در بازی نیست.")
-            return
-        turn_order = seats_list[:]  # همه بازیکن‌ها به ترتیب صندلی
-
-    round_active = True
-    current_turn_index = 0
-
-    first_seat = turn_order[current_turn_index]
-    # اگر تابع start_turn وجود داشته باشد آن را صدا بزن
-    if callable(globals().get("start_turn")):
-        await start_turn(first_seat, duration=globals().get("DEFAULT_TURN_DURATION", 30), is_challenge=False)
-        await message.reply("✅ دور جدید شروع شد.")
-    else:
-        await message.reply("⚠️ تابع شروع دور (start_turn) تعریف نشده است. لطفاً آن را بررسی کنید.")
-
-
-# =========================
-# لیست بازیکنان (فقط گرداننده یا مدیران)
-# =========================
-@dp.message_handler(lambda m: m.text and m.text.strip() == "لیست بازیکنان")
-async def show_players_handler(message: types.Message):
-    global group_chat_id, reserved_god, players, player_slots, group_admins, bot
-
-    # در گروه: بررسی اینکه فرستنده ادمین هست یا نه
-    is_allowed = False
-    uid = message.from_user.id
-
-    # اگر فرستنده گرداننده باشه اجازه بده
-    if reserved_god and uid == reserved_god.get("id"):
-        is_allowed = True
-    else:
-        # اگر پیام در گروه باشه، چک کن او ادمین است
-        if message.chat.type in ["group", "supergroup"]:
-            member = await bot.get_chat_member(message.chat.id, uid)
-            if member.status in ["creator", "administrator"]:
-                is_allowed = True
-        else:
-            # اگر در پیویه، سعی کن group_admins رو آپدیت کنی و چک کن
-            await ensure_group_admins()
-            if uid in (group_admins or []):
-                is_allowed = True
-
-    if not is_allowed:
-        await message.reply("⛔ فقط گرداننده یا مدیران گروه می‌توانند لیست بازیکنان را مشاهده کنند.")
-        return
-
-    # ساخت متن لیست بازیکنان
-    if player_slots:
-        lines = []
-        for seat in sorted(player_slots.keys()):
-            uid = player_slots.get(seat)
-            name = players.get(uid, "❓") if uid else "---"
-            lines.append(f"{seat:02d}. {html.escape(name)}")
-        text = "📜 لیست بازیکنان:\n\n" + "\n".join(lines)
-    else:
-        text = "🚫 هیچ بازیکنی در بازی ثبت نشده است."
-
-    await message.reply(text)
-
-
-# =========================
-# وضعیت بازی
-# =========================
-@dp.message_handler(lambda m: m.text and m.text.strip() == "وضعیت بازی")
-async def game_status_handler(message: types.Message):
-    global group_chat_id, players, player_slots, reserved_list, reserved_scenario, round_active, turn_order
-
-    num_players = len(players) if globals().get("players") else 0
-    seats_total = None
-    if globals().get("reserved_list"):
-        seats_total = len(reserved_list)
-    else:
-        try:
-            if reserved_scenario:
-                seats_total = len(scenarios[reserved_scenario]["roles"])
-        except Exception:
-            seats_total = None
-
-    text = "🔎 وضعیت بازی:\n\n"
-    text += f"تعداد بازیکنان ثبت‌شده: {num_players}\n"
-    text += f"مجموع صندلی‌ها: {seats_total if seats_total is not None else '---'}\n"
-    text += f"سناریو: {reserved_scenario or '---'}\n"
-    text += f"وضعیت دور: {'فعال' if round_active else 'غیرفعال'}\n"
-    text += f"ترتیب نوبت: {len(turn_order) if globals().get('turn_order') else 0}\n"
-
-    await message.reply(text)
-
-
-# =========================
-# راهنما / help (عمومی)
-# =========================
-@dp.message_handler(lambda m: m.text and m.text.strip() in ["راهنما", "/help"])
-async def help_handler(message: types.Message):
-    help_text = (
-        "📚 راهنمای دستورات ربات:\n\n"
-        "برای همه:\n"
-        " - صندلی من : نمایش شماره صندلی شما\n"
-        " - لیست صندلی : نمایش لیست صندلی‌ها و اسامی\n"
-        " - نقش من : (در پیوی) دریافت نقش شما\n"
-        " - وضعیت بازی : اطلاعات کلی درباره بازی\n\n"
-        "برای گرداننده / مدیران:\n"
-        " - شروع دور : شروع نوبت (فقط گرداننده)\n"
-        " - لیست بازیکنان : نمایش نام و صندلی‌ها (مدیر یا گرداننده)\n\n"
-        "ثبت / حذف جایگزین‌ها و خروج و دیگر دستورات:\n"
-        " - جایگزین / لغو جایگزین / لیست جایگزین (همانطور که قبلاً اضافه شده‌اند)\n"
-    )
-    await message.reply(help_text)
 
 
 
