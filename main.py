@@ -521,52 +521,60 @@ async def manage_game_handler(callback: types.CallbackQuery):
 # =========================
 @dp.callback_query_handler(lambda c: c.data.startswith("slot_"))
 async def handle_slot(callback: types.CallbackQuery):
-    global player_slots, players, scenario
+    global player_slots, players, selected_scenario
 
+    # اطمینان از مقداردهی دیکشنری‌ها
+    if "player_slots" not in globals():
+        player_slots = {}
+    if "players" not in globals():
+        players = {}
+
+    # استخراج شماره صندلی
     try:
         seat_num = int(callback.data.replace("slot_", ""))
-        user_id = callback.from_user.id
-        user_name = callback.from_user.full_name
+    except ValueError:
+        await callback.answer("⚠️ شماره صندلی نامعتبر است.", show_alert=True)
+        return
 
-        # اطمینان از اینکه سناریو انتخاب شده
-        if not scenario or scenario not in scenarios:
-            await callback.answer("⚠️ ابتدا یک سناریو انتخاب کنید.", show_alert=True)
-            return
+    user_id = callback.from_user.id
+    user_name = callback.from_user.full_name
 
-        max_seats = len(scenarios[scenario]["roles"])
+    # اطمینان از اینکه سناریو انتخاب شده
+    if not selected_scenario or selected_scenario not in scenarios:
+        await callback.answer("⚠️ ابتدا یک سناریو انتخاب کنید.", show_alert=True)
+        return
 
-        # اگر ظرفیت پر شده و این کاربر هنوز صندلی نداره
-        if user_id not in player_slots.values() and len(player_slots) >= max_seats:
-            await callback.answer("🚫 همه صندلی‌ها پر شده‌اند.", show_alert=True)
-            return
+    max_seats = len(scenarios[selected_scenario]["roles"])
 
-        # اگر همین کاربر روی همین صندلی هست → آزاد کن
-        if player_slots.get(seat_num) == user_id:
-            del player_slots[seat_num]
-            await callback.answer(f"✅ صندلی {seat_num} آزاد شد.")
-            await update_lobby()
-            return
+    # اگر ظرفیت پر شده و این کاربر هنوز صندلی نداره
+    if user_id not in player_slots.values() and len(player_slots) >= max_seats:
+        await callback.answer("🚫 همه صندلی‌ها پر شده‌اند.", show_alert=True)
+        return
 
-        # اگر صندلی پره و برای کس دیگه است
-        if seat_num in player_slots and player_slots[seat_num] != user_id:
-            await callback.answer("❌ این صندلی قبلاً رزرو شده است.", show_alert=True)
-            return
-
-        # اگر کاربر جای دیگه نشسته، اول اون صندلی رو آزاد کن
-        for s, uid in list(player_slots.items()):
-            if uid == user_id and s != seat_num:
-                del player_slots[s]
-
-        # ثبت نهایی
-        player_slots[seat_num] = user_id
-        players[user_id] = user_name
-
-        await callback.answer(f"✅ صندلی {seat_num} برای شما رزرو شد.")
+    # اگر همین کاربر روی همین صندلی است → آزاد کن
+    if player_slots.get(seat_num) == user_id:
+        del player_slots[seat_num]
+        await callback.answer(f"✅ صندلی {seat_num} آزاد شد.")
         await update_lobby()
+        return
 
-    except Exception as e:
-        logging.exception("❌ خطا در handle_slot")
-        await callback.answer("⚠️ خطا در ثبت صندلی.", show_alert=True)
+    # اگر صندلی پره و برای کس دیگه است
+    if seat_num in player_slots and player_slots[seat_num] != user_id:
+        await callback.answer("❌ این صندلی قبلاً رزرو شده است.", show_alert=True)
+        return
+
+    # اگر کاربر جای دیگه نشسته، اول اون صندلی رو آزاد کن
+    for s, uid in list(player_slots.items()):
+        if uid == user_id and s != seat_num:
+            del player_slots[s]
+
+    # ثبت نهایی صندلی
+    player_slots[seat_num] = user_id
+    players[user_id] = user_name
+
+    await callback.answer(f"✅ صندلی {seat_num} برای شما رزرو شد.")
+    await update_lobby()
+
 
 
 # =======================
