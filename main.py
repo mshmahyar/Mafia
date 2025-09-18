@@ -112,6 +112,24 @@ async def ensure_group_admins():
         # اگر خطا شد، بی‌صدا رد میشیم (فقط به شرطی که بعدا نیاز باشه دوباره تلاش کنیم)
         group_admins = globals().get("group_admins", [])
 
+# ======================
+#  لود سناریوها
+# ======================
+def load_scenarios():
+    try:
+        with open("scenarios.json", "r", encoding="utf-8") as f:
+            return json.load(f)
+    except FileNotFoundError:
+        return {
+            "سناریو کلاسیک": {"min_players": 5, "max_players": 10, "roles": ["مافیا", "مافیا", "شهروند", "شهروند", "شهروند"]},
+            "سناریو ویژه": {"min_players": 6, "max_players": 12, "roles": ["مافیا", "مافیا", "شهروند", "شهروند", "شهروند", "کارآگاه"]}
+        }
+
+def save_scenarios():
+    with open("scenarios.json", "w", encoding="utf-8") as f:
+        json.dump(scenarios, f, ensure_ascii=False, indent=2)
+
+scenarios = load_scenarios()
 
 # =========================
 # صندلی من
@@ -405,24 +423,7 @@ async def list_players_handler(callback: types.CallbackQuery):
     await callback.message.answer(text, parse_mode="HTML")
     await callback.answer()
 
-# ======================
-#  لود سناریوها
-# ======================
-def load_scenarios():
-    try:
-        with open("scenarios.json", "r", encoding="utf-8") as f:
-            return json.load(f)
-    except FileNotFoundError:
-        return {
-            "سناریو کلاسیک": {"min_players": 5, "max_players": 10, "roles": ["مافیا", "مافیا", "شهروند", "شهروند", "شهروند"]},
-            "سناریو ویژه": {"min_players": 6, "max_players": 12, "roles": ["مافیا", "مافیا", "شهروند", "شهروند", "شهروند", "کارآگاه"]}
-        }
 
-def save_scenarios():
-    with open("scenarios.json", "w", encoding="utf-8") as f:
-        json.dump(scenarios, f, ensure_ascii=False, indent=2)
-
-scenarios = load_scenarios()
 
 # ======================
 # کیبوردها
@@ -1504,63 +1505,56 @@ async def leave_game_callback(callback: types.CallbackQuery):
 # =========================
 # بروزرسانی پیام لابی اصلی
 # =========================
-async def update_lobby():
-    global player_slots, players, lobby_message_id, scenario, group_chat_id
+def update_lobby(group_id):
+    # دریافت اطلاعات لابی گروه
+    lobby = lobby_data.get(group_id, {})
 
-    try:
-        if not group_chat_id:
-            return
+    # دریافت سناریو انتخاب شده (اگر انتخاب نشده None خواهد بود)
+    scenario = lobby.get("scenario")
 
-        # بررسی سناریو
-        if not scenario:
-            text = "⚠️ هنوز سناریویی انتخاب نشده است."
-            kb = None
-        elif scenario not in scenarios:
-            text = f"⚠️ سناریوی انتخاب‌شده «{scenario}» در لیست سناریوها یافت نشد."
-            kb = None
-        else:
-            # ظرفیت بر اساس تعداد نقش‌ها
-            max_seats = len(scenarios[scenario]["roles"])
+    # متن سناریو
+    if not scenario:
+        scenario_text = "هیچ سناریویی انتخاب نشده است."
+    else:
+        scenario_text = f"سناریو انتخاب شده: {scenario}"
 
-            text = (
-                "🎭 <b>لابی بازی</b>\n"
-                f"📜 سناریو: <b>{scenario}</b>\n"
-                f"👥 ظرفیت: {len(player_slots)}/{max_seats}\n\n"
-            )
+    # لیست بازیکنان
+    players = lobby.get("players", [])
+    if players:
+        players_text = "\n".join([f"- {p}" for p in players])
+    else:
+        players_text = "هیچ بازیکنی هنوز وارد نشده است."
 
-            # لیست صندلی‌ها
-            for seat in range(1, max_seats + 1):
-                if seat in player_slots:
-                    uid = player_slots[seat]
-                    name = players.get(uid, "❓")
-                    text += f"{seat:02d}️⃣ {name}\n"
-                else:
-                    text += f"{seat:02d}️⃣ --- خالی ---\n"
+    # متن کامل پیام لابی
+    lobby_message = f"🎲 لابی بازی\n\n{scenario_text}\n\n👥 بازیکنان:\n{players_text}"
 
-            # ساخت کیبورد
-            kb = InlineKeyboardMarkup(row_width=4)
-            for seat in range(1, max_seats + 1):
-                if seat in player_slots:
-                    kb.insert(InlineKeyboardButton(f"{seat} ❌", callback_data=f"slot_{seat}"))
-                else:
-                    kb.insert(InlineKeyboardButton(f"{seat}", callback_data=f"slot_{seat}"))
+    # ساخت کیبورد
+    kb = InlineKeyboardMarkup(row_width=1)
 
-        # ویرایش یا ارسال پیام
-        if lobby_message_id:
-            await bot.edit_message_text(
-                chat_id=group_chat_id,
-                message_id=lobby_message_id,
-                text=text,
-                reply_markup=kb,
-                parse_mode="HTML"
-            )
-        else:
-            msg = await bot.send_message(group_chat_id, text, reply_markup=kb, parse_mode="HTML")
-            lobby_message_id = msg.message_id
+    # دکمه‌های سناریو
+    for scen in scenarios.keys():
+        kb.add(InlineKeyboardButton(text=scen, callback_data=f"scenario_{scen}"))
 
-    except Exception:
-        logging.exception("❌ خطا در update_lobby")
+    # دکمه‌های دیگر
+    kb.add(InlineKeyboardButton(text="لغو بازی ❌", callback_data="cancel_game"))
+    kb.add(InlineKeyboardButton(text="شروع بازی ▶️", callback_data="start_game"))
 
+    # ارسال یا ویرایش پیام لابی
+    if "message_id" in lobby:
+        bot.edit_message_text(
+            chat_id=group_id,
+            message_id=lobby["message_id"],
+            text=lobby_message,
+            reply_markup=kb
+        )
+    else:
+        msg = bot.send_message(
+            chat_id=group_id,
+            text=lobby_message,
+            reply_markup=kb
+        )
+        # ذخیره message_id برای ویرایش بعدی
+        lobby_data[group_id]["message_id"] = msg.message_id
 
 # ======================
 # لغو بازی توسط مدیران
