@@ -1500,7 +1500,7 @@ async def leave_game_callback(callback: types.CallbackQuery):
     await callback.answer("✅ شما از بازی خارج شدید!")
     await update_lobby()
 
-
+logging.info(f"update_lobby called with scenario={scenario}")
 # =========================
 # بروزرسانی پیام لابی اصلی
 # =========================
@@ -1511,36 +1511,39 @@ async def update_lobby():
         if not group_chat_id:
             return
 
-        # بررسی اینکه سناریو انتخاب شده باشه
-        if not scenario or scenario not in scenarios:
-            await bot.send_message(group_chat_id, "⚠️ سناریو انتخاب نشده است.")
-            return
+        # بررسی سناریو
+        if not scenario:
+            text = "⚠️ هنوز سناریویی انتخاب نشده است."
+            kb = None
+        elif scenario not in scenarios:
+            text = f"⚠️ سناریوی انتخاب‌شده «{scenario}» در لیست سناریوها یافت نشد."
+            kb = None
+        else:
+            # ظرفیت بر اساس تعداد نقش‌ها
+            max_seats = len(scenarios[scenario]["roles"])
 
-        # تعداد صندلی‌ها = تعداد نقش‌ها در سناریو
-        max_seats = len(scenarios[scenario]["roles"])
+            text = (
+                "🎭 <b>لابی بازی</b>\n"
+                f"📜 سناریو: <b>{scenario}</b>\n"
+                f"👥 ظرفیت: {len(player_slots)}/{max_seats}\n\n"
+            )
 
-        # متن لابی
-        text = (
-            "🎭 <b>لابی بازی</b>\n"
-            f"📜 سناریو: <b>{scenario}</b>\n"
-            f"👥 ظرفیت: {len(player_slots)}/{max_seats}\n\n"
-        )
+            # لیست صندلی‌ها
+            for seat in range(1, max_seats + 1):
+                if seat in player_slots:
+                    uid = player_slots[seat]
+                    name = players.get(uid, "❓")
+                    text += f"{seat:02d}️⃣ {name}\n"
+                else:
+                    text += f"{seat:02d}️⃣ --- خالی ---\n"
 
-        for seat in range(1, max_seats + 1):
-            if seat in player_slots:
-                uid = player_slots[seat]
-                name = players.get(uid, "❓")
-                text += f"{seat:02d}️⃣ {name}\n"
-            else:
-                text += f"{seat:02d}️⃣ --- خالی ---\n"
-
-        # کیبورد صندلی‌ها
-        kb = InlineKeyboardMarkup(row_width=4)
-        for seat in range(1, max_seats + 1):
-            if seat in player_slots:
-                kb.insert(InlineKeyboardButton(f"{seat} ❌", callback_data=f"slot_{seat}"))
-            else:
-                kb.insert(InlineKeyboardButton(f"{seat}", callback_data=f"slot_{seat}"))
+            # ساخت کیبورد
+            kb = InlineKeyboardMarkup(row_width=4)
+            for seat in range(1, max_seats + 1):
+                if seat in player_slots:
+                    kb.insert(InlineKeyboardButton(f"{seat} ❌", callback_data=f"slot_{seat}"))
+                else:
+                    kb.insert(InlineKeyboardButton(f"{seat}", callback_data=f"slot_{seat}"))
 
         # ویرایش یا ارسال پیام
         if lobby_message_id:
@@ -1555,9 +1558,8 @@ async def update_lobby():
             msg = await bot.send_message(group_chat_id, text, reply_markup=kb, parse_mode="HTML")
             lobby_message_id = msg.message_id
 
-    except Exception as e:
+    except Exception:
         logging.exception("❌ خطا در update_lobby")
-
 
 
 # ======================
