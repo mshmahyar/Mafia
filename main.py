@@ -2164,20 +2164,20 @@ async def start_turn(seat, duration=DEFAULT_TURN_DURATION, is_challenge=False):
 # ======================
 @dp.callback_query_handler(lambda c: c.data == "start_turn")
 async def handle_start_turn(callback: types.CallbackQuery):
+    global moderator_id
+
+    if not moderator_id:
+        await callback.answer("⚠️ گرداننده هنوز انتخاب نشده است.", show_alert=True)
+        return
+
     if callback.from_user.id != moderator_id:
-        await callback.answer("❌ فقط گرداننده می‌تواند دور را شروع کند.", show_alert=True)
+        await callback.answer("⚠️ فقط گرداننده می‌تواند دور را شروع کند.", show_alert=True)
         return
 
-    global current_turn_index
-    if not turn_order:
-        await callback.answer("⚠️ ترتیب نوبت‌ها مشخص نشده.", show_alert=True)
-        return
+    # ادامه شروع دور بازی
+    await start_turn_logic()
+    await callback.answer("🎭 دور بازی شروع شد!")
 
-    current_turn_index = 0
-    first_seat = turn_order[current_turn_index]
-    await start_turn(first_seat)
-
-    await callback.answer()
 
 #================
 # چالش آف
