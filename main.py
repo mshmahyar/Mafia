@@ -12,6 +12,14 @@ import jdatetime
 import datetime
 import pytz
 from aiogram.utils.exceptions import ChatAdminRequired
+from aiogram.dispatcher import FSMContext
+from aiogram.dispatcher.filters.state import State, StatesGroup
+
+class ScenarioForm(StatesGroup):
+    name = State()
+    roles = State()
+    min_players = State()
+
 
 # ======================
 # تنظیمات ربات
@@ -279,6 +287,44 @@ async def game_status_handler(message: types.Message):
     await message.reply(text)
 
 
+# =============================
+# خروج بازیکن (فقط در لابی)
+# =============================
+@dp.message_handler(lambda m: m.chat.type in ["group", "supergroup"] and m.text and m.text.strip() == "خروج")
+async def leave_game(message: types.Message):
+    global round_active
+
+    group_id = message.chat.id
+    user_id = message.from_user.id
+
+    # بررسی اینکه هنوز دور شروع نشده (لابی فعال باشه)
+    if round_active:
+        await message.reply("⚠️ بعد از شروع بازی امکان خروج وجود ندارد.")
+        return
+
+    # بررسی اینکه بازیکن داخل بازی هست یا نه
+    if user_id not in players:
+        await message.reply("⚠️ شما در حال حاضر داخل بازی نیستید.")
+        return
+
+    # پیدا کردن شماره صندلی بازیکن
+    seat_to_remove = None
+    for seat, uid in player_slots.items():
+        if uid == user_id:
+            seat_to_remove = seat
+            break
+
+    # حذف بازیکن از players و player_slots
+    name = players.pop(user_id, "❓")
+    if seat_to_remove:
+        player_slots.pop(seat_to_remove, None)
+
+    removed_players[user_id] = name  # برای ثبت در لیست حذف‌شده‌ها
+
+    await message.reply(f"🚪 بازیکن {html.escape(name)} از بازی خارج شد (صندلی {seat_to_remove}).")
+
+
+
 # =========================
 # راهنما / help (عمومی)
 # =========================
@@ -386,8 +432,6 @@ def main_menu_keyboard():
     kb.add(
         InlineKeyboardButton("🎮 بازی جدید", callback_data="new_game"),
         InlineKeyboardButton("📝 لیست جدید", callback_data="new_list"),
-        InlineKeyboardButton("⚙ مدیریت سناریو", callback_data="manage_scenarios"),
-        InlineKeyboardButton("📖 راهنما", callback_data="help")
     )
     return kb
 
@@ -475,78 +519,44 @@ async def manage_game_handler(callback: types.CallbackQuery):
 # انتخاب / لغو انتخاب صندلی
 # ======================
 @dp.callback_query_handler(lambda c: c.data.startswith("slot_"))
-async def handle_slot(callback: types.CallbackQuery):
-    global player_slots, player_slots
+async def choose_slot(callback: types.CallbackQuery):
+    global player_slots
+
+    seat_number = int(callback.data.replace("slot_", ""))
     user = callback.from_user
-    seat_number = int(callback.data.split("_")[1])
-    
-    if not selected_scenario:
-        await callback.answer("❌ هنوز سناریویی انتخاب نشده.", show_alert=True)
+    group_id = callback.message.chat.id
+
+    scenario = scenarios.get(list_settings["scenario"], {})
+    max_seats = len(scenario.get("roles", []))
+
+    # اگه ظرفیت پر شده و بازیکن قبلاً داخل نیست
+    if len(player_slots) >= max_seats and user.id not in player_slots.values():
+        await callback.answer("🚫 همه صندلی‌ها پر شدن!", show_alert=True)
         return
-    try:
-        seat_number = int(callback.data.split("_", 1)[1])
-    except Exception:
-        await callback.answer("⚠ شماره صندلی نامعتبر است.", show_alert=True)
-        return
-        
-    if user.id not in players:
-        await callback.answer("❌ ابتدا وارد بازی شوید.", show_alert=True)
-        return   
-        
-        
-    slot_num = int(callback.data.replace("slot_", ""))
-    user_id = callback.from_user.id
 
     # اگه همون بازیکن دوباره بزنه → لغو انتخاب
-    if slot_num in player_slots and player_slots[slot_num] == user_id:
-        del player_slots[slot_num]
-        await callback.answer(f"جایگاه {slot_num} آزاد شد ✅")
+    if seat_number in player_slots and player_slots[seat_number] == user.id:
+        del player_slots[seat_number]
+        await callback.answer(f"جایگاه {seat_number} آزاد شد ✅")
         await update_lobby()
         return
-        
-    else:
-        # اگه جایگاه پر باشه
-        if seat_number in player_slots and player_slots[seat_number] != user.id:
-            await callback.answer("❌ این صندلی قبلاً رزرو شده است.", show_alert=True)
-            return
-        # اگه بازیکن قبلاً جای دیگه نشسته → اون رو آزاد کن
+
+    # اگه صندلی پر باشه
+    if seat_number in player_slots and player_slots[seat_number] != user.id:
+        await callback.answer("❌ این صندلی قبلاً رزرو شده.", show_alert=True)
+        return
+
+    # اگه بازیکن جای دیگه نشسته → آزادش کن
     for seat, uid in list(player_slots.items()):
         if uid == user.id:
             del player_slots[seat]
-            
+
+    # ثبت بازیکن در صندلی
     player_slots[seat_number] = user.id
-    await callback.answer(f"✅ صندلی {seat_number} برای شما رزرو شد.")        
+    await callback.answer(f"✅ صندلی {seat_number} برای شما رزرو شد.")
     await update_lobby()
-    
-def turn_keyboard(seat, is_challenge=False):
-    kb = InlineKeyboardMarkup(row_width=2)
-    kb.add(InlineKeyboardButton("⏭ نکست", callback_data=f"next_{seat}"))
-
-    if not is_challenge:
-        if not challenge_active:
-            return kb
-        player_id = player_slots.get(seat)
-        if player_id:
-            # فقط اگر این بازیکن قبلاً چالش داده (accept کرده) → دکمه حذف بشه
-            if seat in active_challenger_seats:
-                return kb
-
-            # فقط اگر هنوز درخواست pending داره → دکمه غیرفعال بشه
-            already_challenged = any(
-                reqs.get(player_id) == "pending"
-                for reqs in challenge_requests.values()
-            )
-            if not already_challenged:
-                kb.add(InlineKeyboardButton("⚔ درخواست چالش", callback_data=f"challenge_request_{seat}"))
-
-    return kb
 
 
-    list_settings = {
-        "scenario": None,
-        "god": None,
-        "seats": {},   # شماره صندلی → {"id":..., "name":...}
-    }
 # =======================
 # هندلر لیست جدید
 # =======================
@@ -937,17 +947,17 @@ async def resend_roles_handler(callback: types.CallbackQuery):
 #=======================
 # جایگزین بازیکن
 #=======================
+@dp.message_handler(lambda m: m.chat.type in ["group", "supergroup"] and m.text and m.text.strip() == "جایگزین")
 async def add_substitute(message: types.Message):
-    if message.text.strip() == "جایگزین":
-        group_id = message.chat.id
-        user_id = message.from_user.id
-        name = message.from_user.full_name
+    group_id = message.chat.id
+    user_id = message.from_user.id
+    name = message.from_user.full_name
 
-        if group_id not in substitute_list:
-            substitute_list[group_id] = {}
+    if group_id not in substitute_list:
+        substitute_list[group_id] = {}
 
-        substitute_list[group_id][user_id] = {"name": name}
-        await message.reply(f"✅ شما به لیست جایگزین اضافه شدید: {name}")
+    substitute_list[group_id][user_id] = {"name": name}
+    await message.reply(f"✅ شما به لیست جایگزین اضافه شدید: {name}")
 
 # -----------------------------
 # نمایش لیست جایگزین برای گرداننده در پیوی
@@ -1273,12 +1283,68 @@ async def manage_scenarios(callback: types.CallbackQuery):
 
 # افزودن سناریو
 @dp.callback_query_handler(lambda c: c.data == "add_scenario")
-async def add_scenario(callback: types.CallbackQuery):
-    await callback.message.edit_text(
-        "➕ برای افزودن سناریو جدید، فایل <b>scenarios.json</b> را ویرایش کنید و ربات را ری‌استارت کنید.",
-        reply_markup=InlineKeyboardMarkup().add(InlineKeyboardButton("⬅ بازگشت", callback_data="manage_scenarios"))
-    )
+async def add_scenario(callback: types.CallbackQuery, state: FSMContext):
+    if callback.from_user.id not in admins:
+        await callback.answer("❌ فقط ادمین‌ها می‌توانند سناریو اضافه کنند.", show_alert=True)
+        return
+
+    await ScenarioForm.name.set()
+    await callback.message.edit_text("📝 نام سناریو را بفرستید:")
     await callback.answer()
+
+@dp.message_handler(state=ScenarioForm.name, content_types=types.ContentTypes.TEXT)
+async def process_scenario_name(message: types.Message, state: FSMContext):
+    name = message.text.strip()
+    if not name:
+        await message.reply("⚠ نام سناریو نمی‌تواند خالی باشد. دوباره بفرستید.")
+        return
+    await state.update_data(name=name)
+    await ScenarioForm.next()
+    await message.reply("📜 نقش‌ها را خط به خط بفرستید (هر نقش در یک سطر). وقتی تمام شد، روی /done کلیک کنید.")
+
+@dp.message_handler(state=ScenarioForm.roles, content_types=types.ContentTypes.TEXT)
+async def process_roles(message: types.Message, state: FSMContext):
+    data = await state.get_data()
+    roles = data.get("roles", [])
+    roles.append(message.text.strip())
+    await state.update_data(roles=roles)
+    await message.reply(f"✅ نقش «{message.text.strip()}» اضافه شد. (برای پایان /done بزنید)")
+
+@dp.message_handler(commands="done", state=ScenarioForm.roles)
+async def finish_roles(message: types.Message, state: FSMContext):
+    data = await state.get_data()
+    if not data.get("roles"):
+        await message.reply("⚠ هیچ نقشی وارد نشده. دوباره نقش‌ها را بفرستید.")
+        return
+    await ScenarioForm.next()
+    await message.reply("👥 حالا حداقل تعداد بازیکن را بفرستید (باید عدد باشد):")
+
+@dp.message_handler(state=ScenarioForm.min_players, content_types=types.ContentTypes.TEXT)
+async def process_min_players(message: types.Message, state: FSMContext):
+    try:
+        min_players = int(message.text.strip())
+    except ValueError:
+        await message.reply("⚠ لطفاً یک عدد معتبر وارد کنید.")
+        return
+
+    data = await state.get_data()
+    name = data["name"]
+    roles = data["roles"]
+
+    # ذخیره در scenarios
+    scenarios[name] = {
+        "roles": roles,
+        "min_players": min_players
+    }
+    save_scenarios()
+
+    await message.reply(f"✅ سناریو «{name}» با {len(roles)} نقش و حداقل {min_players} بازیکن ذخیره شد.")
+    await state.finish()
+
+def save_scenarios():
+    with open("scenarios.json", "w", encoding="utf-8") as f:
+        json.dump(scenarios, f, ensure_ascii=False, indent=4)
+
 
 # حذف سناریو
 @dp.callback_query_handler(lambda c: c.data == "remove_scenario")
