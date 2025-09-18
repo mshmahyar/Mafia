@@ -1500,7 +1500,7 @@ async def leave_game_callback(callback: types.CallbackQuery):
     await callback.answer("✅ شما از بازی خارج شدید!")
     await update_lobby()
 
-logging.info(f"update_lobby called with scenario={scenario}")
+
 # =========================
 # بروزرسانی پیام لابی اصلی
 # =========================
