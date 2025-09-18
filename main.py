@@ -521,56 +521,39 @@ async def manage_game_handler(callback: types.CallbackQuery):
 # =========================
 @dp.callback_query_handler(lambda c: c.data.startswith("slot_"))
 async def handle_slot(callback: types.CallbackQuery):
-    global player_slots, players, selected_scenario
+    global player_slots
+    user = callback.from_user
+    seat_num = int(callback.data.split("_")[1])
 
-    if "player_slots" not in globals():
-        player_slots = {}
-    if "players" not in globals():
-        players = {}
-
-    try:
-        seat_num = int(callback.data.replace("slot_", ""))
-    except ValueError:
-        await callback.answer("⚠️ شماره صندلی نامعتبر است.", show_alert=True)
+    if not selected_scenario:
+        await callback.answer("❌ هنوز سناریویی انتخاب نشده.", show_alert=True)
         return
 
-    user_id = callback.from_user.id
-    user_name = callback.from_user.full_name
-
-    if not selected_scenario or selected_scenario not in scenarios:
-        await callback.answer("⚠️ ابتدا یک سناریو انتخاب کنید.", show_alert=True)
+    if user.id not in players:
+        await callback.answer("❌ ابتدا وارد بازی شوید.", show_alert=True)
         return
 
-    max_seats = len(scenarios[selected_scenario]["roles"])
-
-    if user_id not in player_slots.values() and len(player_slots) >= max_seats:
-        await callback.answer("🚫 همه صندلی‌ها پر شده‌اند.", show_alert=True)
-        return
-
-    if player_slots.get(seat_num) == user_id:
+    # اگر خود بازیکن دوباره صندلی خودش را زد → آزاد شود
+    if seat_num in player_slots and player_slots[seat_num] == user.id:
         del player_slots[seat_num]
         await callback.answer(f"✅ صندلی {seat_num} آزاد شد.")
         await update_lobby()
         return
 
-    if seat_num in player_slots and player_slots[seat_num] != user_id:
+    # اگر صندلی پر است → هشدار
+    if seat_num in player_slots and player_slots[seat_num] != user.id:
         await callback.answer("❌ این صندلی قبلاً رزرو شده است.", show_alert=True)
         return
 
-    # آزادسازی صندلی قبلی کاربر
+    # آزادسازی صندلی قبلی بازیکن
     for s, uid in list(player_slots.items()):
-        if uid == user_id and s != seat_num:
+        if uid == user.id:
             del player_slots[s]
 
     # ثبت صندلی جدید
-    player_slots[seat_num] = user_id
-    players[user_id] = user_name
-
+    player_slots[seat_num] = user.id
     await callback.answer(f"✅ صندلی {seat_num} برای شما رزرو شد.")
     await update_lobby()
-
-
-
 
 # =======================
 # هندلر لیست جدید
@@ -1547,30 +1530,24 @@ async def update_lobby():
             else:
                 kb.insert(InlineKeyboardButton(str(i), callback_data=f"slot_{i}"))
 
-    # دکمه ورود/خروج با بررسی ظرفیت
-    if selected_scenario:
-        max_players = len(scenarios[selected_scenario]["roles"])
-        if len(players) < max_players:
-            kb.row(
-                InlineKeyboardButton("✅ ورود به بازی", callback_data="join_game"),
-                InlineKeyboardButton("❌ خروج از بازی", callback_data="leave_game"),
-            )
-        else:
-            kb.row(
-                InlineKeyboardButton("❌ خروج از بازی", callback_data="leave_game"),
-            )
-            text += "\n⚠️ ظرفیت بازی کامل است."
+    # دکمه ورود/خروج
+    kb.row(
+        InlineKeyboardButton("✅ ورود به بازی", callback_data="join_game"),
+        InlineKeyboardButton("❌ خروج از بازی", callback_data="leave_game"),
+    )
 
     # دکمه لغو بازی فقط برای مدیران
     if moderator_id and moderator_id in admins:
         kb.add(InlineKeyboardButton("🚫 لغو بازی", callback_data="cancel_game"))
 
-    # دکمه شروع دور فقط برای گرداننده و اگر تعداد بازیکنان کافی باشد
-    if selected_scenario and moderator_id:
+    # دکمه پخش نقش
+    if selected_scenario:
         min_players = scenarios[selected_scenario]["min_players"]
         max_players = len(scenarios[selected_scenario]["roles"])
         if min_players <= len(players) <= max_players:
-            kb.add(InlineKeyboardButton("🎭 شروع دور", callback_data="start_turn"))
+            kb.add(InlineKeyboardButton("🎭 پخش نقش", callback_data="distribute_roles"))
+        elif len(players) > max_players:
+            text += "\n⚠️ تعداد بازیکنان بیش از ظرفیت این سناریو است."
 
     # ارسال یا ویرایش پیام لابی
     try:
@@ -1590,6 +1567,7 @@ async def update_lobby():
             group_chat_id, text, reply_markup=kb, parse_mode="HTML"
         )
         lobby_message_id = msg.message_id
+
 
 # ======================
 # لغو بازی توسط مدیران
@@ -2155,26 +2133,19 @@ async def start_turn(seat, duration=DEFAULT_TURN_DURATION, is_challenge=False):
 # ======================
 @dp.callback_query_handler(lambda c: c.data == "start_turn")
 async def handle_start_turn(callback: types.CallbackQuery):
-    global moderator_id
-
-    user_id = callback.from_user.id
-
-    if not moderator_id:
-        await callback.answer("⚠️ گرداننده هنوز انتخاب نشده است.", show_alert=True)
+    if callback.from_user.id != moderator_id:
+        await callback.answer("❌ فقط گرداننده می‌تواند دور را شروع کند.", show_alert=True)
         return
 
-    if user_id != moderator_id:
-        await callback.answer("⚠️ فقط گرداننده می‌تواند دور را شروع کند.", show_alert=True)
+    global current_turn_index
+    if not turn_order:
+        await callback.answer("⚠️ ترتیب نوبت‌ها مشخص نشده.", show_alert=True)
         return
 
-    try:
-        await start_turn_logic()  # فانکشن شما برای شروع دور
-        await callback.answer("🎭 دور بازی شروع شد!")
-    except Exception as e:
-        logging.exception("❌ خطا در شروع دور بازی")
-        await callback.answer("⚠️ خطا در شروع دور.", show_alert=True)
-        return
-
+    current_turn_index = 0
+    first_seat = turn_order[current_turn_index]
+    await start_turn(first_seat)  # فانکشن شروع دور شما
+    await callback.answer()
     await update_lobby()
 
 
