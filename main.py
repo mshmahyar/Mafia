@@ -533,6 +533,13 @@ async def handle_slot(callback: types.CallbackQuery):
         await callback.answer("❌ ابتدا وارد بازی شوید.", show_alert=True)
         return
 
+    max_seats = len(scenarios[selected_scenario]["roles"])
+
+    # بررسی ظرفیت قبل از رزرو
+    if user.id not in player_slots.values() and len(player_slots) >= max_seats:
+        await callback.answer("🚫 همه صندلی‌ها پر شده‌اند.", show_alert=True)
+        return
+
     # اگر خود بازیکن دوباره صندلی خودش را زد → آزاد شود
     if seat_num in player_slots and player_slots[seat_num] == user.id:
         del player_slots[seat_num]
@@ -554,6 +561,7 @@ async def handle_slot(callback: types.CallbackQuery):
     player_slots[seat_num] = user.id
     await callback.answer(f"✅ صندلی {seat_num} برای شما رزرو شد.")
     await update_lobby()
+
 
 # =======================
 # هندلر لیست جدید
@@ -2144,10 +2152,9 @@ async def handle_start_turn(callback: types.CallbackQuery):
 
     current_turn_index = 0
     first_seat = turn_order[current_turn_index]
-    await start_turn(first_seat)  # فانکشن شروع دور شما
-    await callback.answer()
-    await update_lobby()
+    await start_turn(first_seat)
 
+    await callback.answer()
 
 #================
 # چالش آف
