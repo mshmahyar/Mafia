@@ -8,6 +8,9 @@ from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.utils import executor
 import html
 import commands
+from aiogram.utils.exceptions import ChatAdminRequired
+from aiogram.dispatcher import FSMContext
+from aiogram.dispatcher.filters.state import State, StatesGroup
 
 # ======================
 # تنظیمات ربات
