@@ -121,6 +121,20 @@ def get_current_moderator_id():
         return rg.get("id")
     return globals().get("moderator_id")
 
+#---------------------------------------
+
+def get_current_moderator_id():
+    """اول reserved_god اگر هست؛ در غیر این صورت moderator_id را برگردان."""
+    rg = globals().get("reserved_god")
+    if isinstance(rg, dict) and rg.get("id"):
+        return rg.get("id")
+    return globals().get("moderator_id")
+
+def is_current_moderator(user_id):
+    """True اگر user_id همان گرداننده فعلی باشد."""
+    current = get_current_moderator_id()
+    return current is not None and user_id == current
+
 
 # ======================
 #  لود سناریوها
@@ -1722,28 +1736,28 @@ async def distribute_roles():
 #==================
 # شروع راند
 #==================
-@dp.callback_query_handler(lambda c: c.data == "start_round")
-async def start_round_handler(callback: types.CallbackQuery):
-    global turn_order, current_turn_index, round_active
+#@dp.callback_query_handler(lambda c: c.data == "start_round")
+#async def start_round_handler(callback: types.CallbackQuery):
+#    global turn_order, current_turn_index, round_active
 
-    user_id = callback.from_user.id
-    if not reserved_god or user_id != reserved_god.get("id"):
-        await callback.answer("⛔ فقط گرداننده می‌تونه دور رو شروع کنه!", show_alert=True)
-        return
+#    user_id = callback.from_user.id
+#    if not reserved_god or user_id != reserved_god.get("id"):
+#        await callback.answer("⛔ فقط گرداننده می‌تونه دور رو شروع کنه!", show_alert=True)
+#        return
 
-    if not turn_order:
-        seats_list = sorted(player_slots.keys())
-        if not seats_list:
-            await callback.answer("⚠️ هیچ بازیکنی در بازی نیست.", show_alert=True)
-            return
-        turn_order = seats_list[:]  # همه بازیکن‌ها به ترتیب صندلی
+#    if not turn_order:
+#        seats_list = sorted(player_slots.keys())
+#        if not seats_list:
+#            await callback.answer("⚠️ هیچ بازیکنی در بازی نیست.", show_alert=True)
+#            return
+#        turn_order = seats_list[:]  # همه بازیکن‌ها به ترتیب صندلی
 
-    round_active = True
-    current_turn_index = 0  # شروع از سر صحبت
+#    round_active = True
+#    current_turn_index = 0  # شروع از سر صحبت
 
-    first_seat = turn_order[current_turn_index]  # صندلی یا آی‌دی بازیکن اول
-    await start_turn(first_seat, duration=DEFAULT_TURN_DURATION, is_challenge=False)
-    await callback.answer()
+#    first_seat = turn_order[current_turn_index]  # صندلی یا آی‌دی بازیکن اول
+#    await start_turn(first_seat, duration=DEFAULT_TURN_DURATION, is_challenge=False)
+#    await callback.answer()
 
 
 #======================
@@ -2605,15 +2619,14 @@ async def text_commands_handler(message: types.Message):
 # هندلر دکمه شروع دور
 # ======================
 @dp.callback_query_handler(lambda c: c.data in ("start_turn", "start_round"))
-async def handle_start_turn(callback: types.CallbackQuery):
+async def handle_start_turn_callback(callback: types.CallbackQuery):
     global current_turn_index, turn_order
 
+    # لاگ برای دیباگ — بعد از deploy لاگ‌ها رو چک کن
+    logging.info("handle_start_turn_callback called by user=%s callback=%s reserved_god=%r moderator_id=%r",
+                 callback.from_user.id, callback.data, globals().get("reserved_god"), globals().get("moderator_id"))
+
     current_mod = get_current_moderator_id()
-
-    # لاگ برای دیباگ (بلافاصله بعد از deploy لاگ‌ها رو چک کن)
-    logging.info("start_turn called by %s | current_mod=%s | reserved_god=%r | moderator_id=%r | callback=%s",
-                 callback.from_user.id, current_mod, globals().get("reserved_god"), globals().get("moderator_id"), callback.data)
-
     if not current_mod:
         await callback.answer("⚠️ گرداننده مشخص نیست. لطفاً ابتدا گرداننده را انتخاب کنید.", show_alert=True)
         return
@@ -2628,9 +2641,11 @@ async def handle_start_turn(callback: types.CallbackQuery):
 
     current_turn_index = 0
     first_seat = turn_order[current_turn_index]
+    # اگر start_turn تابع sync نیست یا پارامترهای بیشتری لازم دارد مطابقِ نسخه‌ی خودت صدا بزن
     await start_turn(first_seat)
 
     await callback.answer()
+
 
 
 
