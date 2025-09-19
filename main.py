@@ -112,6 +112,14 @@ async def ensure_group_admins():
         # اگر خطا شد، بی‌صدا رد میشیم (فقط به شرطی که بعدا نیاز باشه دوباره تلاش کنیم)
         group_admins = globals().get("group_admins", [])
 
+# ==========================
+# تابع برگردوندن گرداننده معتبر
+# ==========================
+def get_current_moderator_id():
+    if reserved_god:
+        return reserved_god.get("id")
+    return moderator_id
+
 # ======================
 #  لود سناریوها
 # ======================
@@ -2596,11 +2604,13 @@ async def text_commands_handler(message: types.Message):
 # ======================
 @dp.callback_query_handler(lambda c: c.data == "start_turn")
 async def handle_start_turn(callback: types.CallbackQuery):
-    if callback.from_user.id != moderator_id:
+    global current_turn_index, turn_order
+
+    current_mod = get_current_moderator_id()
+    if not current_mod or callback.from_user.id != current_mod:
         await callback.answer("❌ فقط گرداننده می‌تواند دور را شروع کند.", show_alert=True)
         return
 
-    global current_turn_index
     if not turn_order:
         await callback.answer("⚠️ ترتیب نوبت‌ها مشخص نشده.", show_alert=True)
         return
@@ -2610,6 +2620,7 @@ async def handle_start_turn(callback: types.CallbackQuery):
     await start_turn(first_seat)
 
     await callback.answer()
+
 
 
 # ======================
