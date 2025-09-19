@@ -549,6 +549,7 @@ async def list_set_god(callback: types.CallbackQuery):
 
     reserved_god = {"id": god_id, "name": god_name}
     await callback.answer("✅ گرداننده برای لیست رزروی انتخاب شد")
+    await state.finish()
 
     # بازگشت به منوی تنظیمات
     kb = InlineKeyboardMarkup(row_width=1)
