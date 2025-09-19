@@ -1440,7 +1440,7 @@ def main_menu_keyboard():
     kb = InlineKeyboardMarkup(row_width=1)
     kb.add(
         InlineKeyboardButton("🎮 بازی جدید", callback_data="new_game"),
-        InlineKeyboardButton("⚙ مدیریت سناریو", callback_data="manage_scenarios"),
+        InlineKeyboardButton("📋 لیست جدید", callback_data="new_list"),
         InlineKeyboardButton("📖 راهنما", callback_data="help")
     )
     return kb
@@ -1793,6 +1793,8 @@ async def start_cmd(message: types.Message):
         # منوی پیوی ربات
         kb = InlineKeyboardMarkup(row_width=1)
         kb.add(InlineKeyboardButton("🎮 بازی جدید", callback_data="new_game"))
+        kb.add(InlineKeyboardButton("📋 لیست جدید", callback_data="new_list"))
+        
         
         # فقط مدیر ربات این دو دکمه را می‌بیند
         if message.from_user.id == moderator_id:
