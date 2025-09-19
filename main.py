@@ -11,6 +11,11 @@ import commands
 from aiogram.utils.exceptions import ChatAdminRequired
 from aiogram.dispatcher import FSMContext
 from aiogram.dispatcher.filters.state import State, StatesGroup
+from aiogram.contrib.fsm_storage.memory import MemoryStorage
+class ScenarioForm(StatesGroup):
+    name = State()
+    roles = State()
+    min_players = State()
 
 # ======================
 # تنظیمات ربات
@@ -21,6 +26,7 @@ if not API_TOKEN:
 
 logging.basicConfig(level=logging.INFO)
 bot = Bot(token=API_TOKEN, parse_mode="HTML")
+storage = MemoryStorage()
 dp = Dispatcher(bot)
 # فقط این گروه اجازه اجرای بازی داره
 ALLOWED_GROUP_ID = -1002356353761
@@ -1825,65 +1831,7 @@ async def start_game(callback: types.CallbackQuery):
 
     await callback.answer()
 
-# ======================
-# مدیریت سناریو
-# ======================
-@dp.callback_query_handler(lambda c: c.data == "manage_scenarios")
-async def manage_scenarios(callback: types.CallbackQuery):
-    if callback.from_user.id not in admins:
-        await callback.answer("❌ فقط ادمین‌ها می‌توانند مدیریت سناریو کنند.", show_alert=True)
-        return
-    kb = InlineKeyboardMarkup(row_width=1)
-    kb.add(
-        InlineKeyboardButton("➕ افزودن سناریو", callback_data="add_scenario"),
-        InlineKeyboardButton("➖ حذف سناریو", callback_data="remove_scenario"),
-        InlineKeyboardButton("⬅ بازگشت", callback_data="back_main")
-    )
-    await callback.message.edit_text("⚙ مدیریت سناریو:", reply_markup=kb)
 
-# افزودن سناریو
-@dp.callback_query_handler(lambda c: c.data == "add_scenario")
-async def add_scenario(callback: types.CallbackQuery):
-    await callback.message.edit_text(
-        "➕ برای افزودن سناریو جدید، فایل <b>scenarios.json</b> را ویرایش کنید و ربات را ری‌استارت کنید.",
-        reply_markup=InlineKeyboardMarkup().add(InlineKeyboardButton("⬅ بازگشت", callback_data="manage_scenarios"))
-    )
-    await callback.answer()
-
-# حذف سناریو
-@dp.callback_query_handler(lambda c: c.data == "remove_scenario")
-async def remove_scenario(callback: types.CallbackQuery):
-    kb = InlineKeyboardMarkup(row_width=1)
-    for scen in scenarios:
-        kb.add(InlineKeyboardButton(f"❌ {scen}", callback_data=f"delete_scen_{scen}"))
-    kb.add(InlineKeyboardButton("⬅ بازگشت", callback_data="manage_scenarios"))
-    await callback.message.edit_text("یک سناریو را برای حذف انتخاب کنید:", reply_markup=kb)
-    await callback.answer()
-
-@dp.callback_query_handler(lambda c: c.data.startswith("delete_scen_"))
-async def delete_scenario(callback: types.CallbackQuery):
-    scen = callback.data.replace("delete_scen_", "")
-    if scen in scenarios:
-        scenarios.pop(scen)
-        save_scenarios()
-        await callback.message.edit_text(f"✅ سناریو «{scen}» حذف شد.", reply_markup=main_menu_keyboard())
-    else:
-        await callback.answer("⚠ این سناریو وجود ندارد.", show_alert=True)
-
-
-@dp.callback_query_handler(lambda c: c.data == "help")
-async def show_help(callback: types.CallbackQuery):
-    try:
-        with open("help.txt", "r", encoding="utf-8") as f:
-            help_text = f.read()
-    except FileNotFoundError:
-        help_text = "⚠ فایل help.txt پیدا نشد."
-    kb = InlineKeyboardMarkup().add(InlineKeyboardButton("⬅ بازگشت", callback_data="back_main"))
-    await callback.message.edit_text(help_text, reply_markup=kb)
-
-@dp.callback_query_handler(lambda c: c.data == "back_main")
-async def back_main(callback: types.CallbackQuery):
-    await callback.message.edit_text("🏠 منوی اصلی:", reply_markup=main_menu_keyboard())
 
 # ======================
 # انتخاب سناریو و گرداننده
