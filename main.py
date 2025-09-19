@@ -112,13 +112,15 @@ async def ensure_group_admins():
         # اگر خطا شد، بی‌صدا رد میشیم (فقط به شرطی که بعدا نیاز باشه دوباره تلاش کنیم)
         group_admins = globals().get("group_admins", [])
 
-# ==========================
-# تابع برگردوندن گرداننده معتبر
-# ==========================
+
+#---------------------------
+# تابع کمکی برای گرفتن آیدی گرداننده (اولویت: reserved_god سپس moderator_id)
 def get_current_moderator_id():
-    if reserved_god:
-        return reserved_god.get("id")
-    return moderator_id
+    rg = globals().get("reserved_god")
+    if isinstance(rg, dict) and rg.get("id"):
+        return rg.get("id")
+    return globals().get("moderator_id")
+
 
 # ======================
 #  لود سناریوها
@@ -2602,12 +2604,21 @@ async def text_commands_handler(message: types.Message):
 # ======================
 # هندلر دکمه شروع دور
 # ======================
-@dp.callback_query_handler(lambda c: c.data == "start_turn")
+@dp.callback_query_handler(lambda c: c.data in ("start_turn", "start_round"))
 async def handle_start_turn(callback: types.CallbackQuery):
     global current_turn_index, turn_order
 
     current_mod = get_current_moderator_id()
-    if not current_mod or callback.from_user.id != current_mod:
+
+    # لاگ برای دیباگ (بلافاصله بعد از deploy لاگ‌ها رو چک کن)
+    logging.info("start_turn called by %s | current_mod=%s | reserved_god=%r | moderator_id=%r | callback=%s",
+                 callback.from_user.id, current_mod, globals().get("reserved_god"), globals().get("moderator_id"), callback.data)
+
+    if not current_mod:
+        await callback.answer("⚠️ گرداننده مشخص نیست. لطفاً ابتدا گرداننده را انتخاب کنید.", show_alert=True)
+        return
+
+    if callback.from_user.id != current_mod:
         await callback.answer("❌ فقط گرداننده می‌تواند دور را شروع کند.", show_alert=True)
         return
 
