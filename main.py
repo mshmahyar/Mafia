@@ -308,17 +308,24 @@ async def manage_game_handler(callback: types.CallbackQuery):
         return
 
     user_id = callback.from_user.id
-    if not reserved_god or (user_id != reserved_god.get("id") and user_id not in group_admins):
-        await callback.answer("⛔ فقط گرداننده یا مدیران گروه می‌تونن به منوی مدیریت دسترسی داشته باشن!", show_alert=True)
+
+    # بررسی گرداننده یا ادمین‌ها
+    if not reserved_god:
+        await callback.answer("🚫 هنوز گرداننده مشخص نشده.", show_alert=True)
         return
 
-    global group_chat_id
+    if user_id != reserved_god.get("id") and user_id not in admins:  # 👈 دقت کن به admins
+        await callback.answer("⛔ فقط گرداننده یا مدیران گروه می‌تونن وارد منوی مدیریت بشن!", show_alert=True)
+        return
+
     if not group_chat_id:
         await callback.answer("🚫 هنوز هیچ بازی فعالی شروع نشده.", show_alert=True)
         return
 
     kb = manage_game_keyboard(group_chat_id)
-    await callback.message.answer("🎮 منوی مدیریت بازی:", reply_markup=kb)
+
+    # 👇 به‌جای answer پیام رو درست بفرست
+    await callback.message.edit_text("🎮 منوی مدیریت بازی:", reply_markup=kb)
     await callback.answer()
 
 # ======================
