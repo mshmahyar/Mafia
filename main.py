@@ -12,10 +12,13 @@ from aiogram.utils.exceptions import ChatAdminRequired
 from aiogram.dispatcher import FSMContext
 from aiogram.dispatcher.filters.state import State, StatesGroup
 from aiogram.contrib.fsm_storage.memory import MemoryStorage
+import jdatetime
 class ScenarioForm(StatesGroup):
     name = State()
     roles = State()
     min_players = State()
+
+
 
 # ======================
 # تنظیمات ربات
@@ -103,6 +106,13 @@ def save_scenarios():
         json.dump(scenarios, f, ensure_ascii=False, indent=2)
 
 scenarios = load_scenarios()
+
+# ================================
+# تابع تقویم
+# ================================
+def get_jalali_today():
+    today = jdatetime.date.today()
+    return today.strftime("%Y/%m/%d")
 
 # ======================
 # 🎮 مدیریت بازی در پیوی
@@ -571,12 +581,16 @@ async def list_choose_god(callback: types.CallbackQuery):
     )
 
 
-@dp.callback_query_handler(lambda c: c.data.startswith("list_god_"))
-async def list_set_god(callback: types.CallbackQuery):
-    global reserved_god
-    god_id = int(callback.data.split("list_god_")[1])
 
+
+@dp.callback_query_handler(lambda c: c.data.startswith("list_god_"))
+async def list_set_god(callback: types.CallbackQuery, state: FSMContext):
+    global reserved_god
+
+    god_id = int(callback.data.split("list_god_")[1])
     chat_id = callback.message.chat.id
+
+    # پیدا کردن اسم گرداننده از بین ادمین‌ها
     admins = await bot.get_chat_administrators(chat_id)
     god_name = None
     for admin in admins:
@@ -584,9 +598,16 @@ async def list_set_god(callback: types.CallbackQuery):
             god_name = admin.user.full_name
             break
 
+    if not god_name:
+        await callback.answer("⚠️ گرداننده نامعتبر است.", show_alert=True)
+        return
+
     reserved_god = {"id": god_id, "name": god_name}
     await callback.answer("✅ گرداننده برای لیست رزروی انتخاب شد")
-    await state.finish()
+
+    # بستن استیت (اگر فعال بود)
+    if state:
+        await state.finish()
 
     # بازگشت به منوی تنظیمات
     kb = InlineKeyboardMarkup(row_width=1)
@@ -599,7 +620,6 @@ async def list_set_god(callback: types.CallbackQuery):
         reply_markup=kb,
         parse_mode="HTML"
     )
-
 # =========================
 # ساخت لیست رزروی
 # =========================
