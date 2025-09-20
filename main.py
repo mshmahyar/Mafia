@@ -828,54 +828,8 @@ async def resend_roles_handler(callback: types.CallbackQuery):
     await callback.message.answer(text, parse_mode="HTML")
     await callback.answer(f"✅ نقش‌ها به {sent} بازیکن ارسال شدند.")
 
-#=======================
-# جایگزین بازیکن
-#=======================
-@dp.message_handler(lambda m: m.chat.type in ["group", "supergroup"] and m.text and m.text.strip() == "جایگزین")
-async def add_substitute(message: types.Message):
-    group_id = message.chat.id
-    user_id = message.from_user.id
-    name = message.from_user.full_name
-
-    if group_id not in substitute_list:
-        substitute_list[group_id] = {}
-
-    substitute_list[group_id][user_id] = {"name": name}
-    await message.reply(f"✅ شما به لیست جایگزین اضافه شدید: {name}")
-
 # -----------------------------
-# نمایش لیست جایگزین برای گرداننده در پیوی
-# -----------------------------
-async def show_substitute_list(callback: types.CallbackQuery):
-    group_id = get_group_for_admin(callback.from_user.id)  # تابع خودت
-    subs = substitute_list.get(group_id, {})
-    if not subs:
-        await callback.message.answer("⚠️ لیست جایگزین خالی است.")
-        return
-
-    kb = InlineKeyboardMarkup(row_width=1)
-    for user_id, data in subs.items():
-        kb.add(InlineKeyboardButton(data["name"], callback_data=f"choose_sub_{user_id}_{group_id}"))
-
-    await callback.message.answer("👥 لیست جایگزین:", reply_markup=kb)
-
-# -----------------------------
-# نمایش بازیکنان فعلی بازی بعد از انتخاب جایگزین
-# -----------------------------
-async def choose_substitute(callback: types.CallbackQuery):
-    parts = callback.data.split("_")
-    sub_id = int(parts[2])
-    group_id = int(parts[3])
-    kb = InlineKeyboardMarkup(row_width=1)
-
-    current_players = players_in_game.get(group_id, {})
-    for seat, p in current_players.items():
-        kb.add(InlineKeyboardButton(f"{seat}. {p['name']}", callback_data=f"replace_{sub_id}_{seat}_{group_id}"))
-
-    await callback.message.answer("👤 بازیکن جایگزین، بازیکن فعلی را انتخاب کنید:", reply_markup=kb)
-
-# -----------------------------
-# جایگزینی بازیکن
+# جایگزینی بازیکن - نمایش لیست جایگزین‌ها
 # -----------------------------
 @dp.callback_query_handler(lambda c: c.data == "replace_player")
 async def replace_player_list_handler(callback: types.CallbackQuery):
@@ -883,7 +837,6 @@ async def replace_player_list_handler(callback: types.CallbackQuery):
         await callback.answer()
         return
 
-    # substitute_list در فایل اصلی شکل: {group_id: {user_id: {"name": name}}}
     subs = substitute_list.get(group_chat_id, {})
     if not subs:
         await callback.message.answer("🚫 لیست جایگزین‌ها خالی است.")
@@ -892,16 +845,21 @@ async def replace_player_list_handler(callback: types.CallbackQuery):
 
     kb = InlineKeyboardMarkup(row_width=1)
     for uid, info in subs.items():
-        kb.add(InlineKeyboardButton(html.escape(info.get("name","❓")), callback_data=f"choose_sub_{uid}"))
+        name = info.get("name") or "❓"
+        kb.add(InlineKeyboardButton(html.escape(name), callback_data=f"choose_sub_{uid}"))
 
     await callback.message.answer("👥 لیست جایگزین‌ها:", reply_markup=kb)
     await callback.answer()
 
 
+# -----------------------------
+# انتخاب بازیکن اصلی برای جایگزینی
+# -----------------------------
 @dp.callback_query_handler(lambda c: c.data.startswith("choose_sub_"))
 async def choose_substitute_for_replace(callback: types.CallbackQuery):
     uid_sub = int(callback.data.replace("choose_sub_", ""))
-    # نمایش بازیکنان فعلی برای انتخاب جایگزینی
+
+    # بازیکنان فعلی
     current = {seat: players.get(uid, "❓") for seat, uid in player_slots.items()}
     if not current:
         await callback.message.answer("🚫 هیچ بازیکنی در بازی نیست.")
@@ -910,17 +868,25 @@ async def choose_substitute_for_replace(callback: types.CallbackQuery):
 
     kb = InlineKeyboardMarkup(row_width=1)
     for seat, name in sorted(current.items()):
-        kb.add(InlineKeyboardButton(f"{seat}. {html.escape(name)}", callback_data=f"do_replace_{uid_sub}_{seat}"))
+        label = f"{seat}. {html.escape(name)}"
+        kb.add(InlineKeyboardButton(label, callback_data=f"do_replace_{uid_sub}_{seat}"))
 
     await callback.message.answer("👤 بازیکن جایگزین، بازیکن فعلی را انتخاب کنید:", reply_markup=kb)
     await callback.answer()
 
 
+# -----------------------------
+# انجام جایگزینی
+# -----------------------------
 @dp.callback_query_handler(lambda c: c.data.startswith("do_replace_"))
 async def do_replace_handler(callback: types.CallbackQuery):
-    parts = callback.data.split("_")
-    uid_sub = int(parts[2])
-    seat = int(parts[3])
+    try:
+        _, _, uid_sub_str, seat_str = callback.data.split("_")
+        uid_sub = int(uid_sub_str)
+        seat = int(seat_str)
+    except Exception:
+        await callback.answer("⚠️ داده جایگزینی نامعتبر است.", show_alert=True)
+        return
 
     subs = substitute_list.get(group_chat_id, {})
     sub_info = subs.pop(uid_sub, None)
@@ -929,20 +895,22 @@ async def do_replace_handler(callback: types.CallbackQuery):
         await callback.answer()
         return
 
-    # جایگزینی: نگه داشتن نام و نقش (اگر نقش‌ها در last_role_map موجوده)
+    # بازیکن قدیمی
     old_uid = player_slots.get(seat)
     old_name = players.pop(old_uid, "❓") if old_uid in players else "❓"
 
-    # قرار دادن جایگزین
-    players[uid_sub] = sub_info.get("name", "❓")
+    # جایگزین جدید
+    players[uid_sub] = sub_info.get("name", f"User{uid_sub}")
     player_slots[seat] = uid_sub
 
-    # اگر last_role_map داشتیم، جایگزین رو هم با نقش قدیمی مرتبط کن (انتقال نقش)
+    # انتقال نقش در صورت وجود
     global last_role_map
-    if old_uid and last_role_map.get(old_uid):
+    if old_uid and last_role_map and old_uid in last_role_map:
         last_role_map[uid_sub] = last_role_map.pop(old_uid)
 
-    await callback.message.answer(f"✅ بازیکن {html.escape(old_name)} با {html.escape(players[uid_sub])} جایگزین شد (صندلی {seat}).")
+    await callback.message.answer(
+        f"✅ بازیکن {html.escape(old_name)} با {html.escape(players[uid_sub])} جایگزین شد (صندلی {seat})."
+    )
     await callback.answer()
 
 #=======================
