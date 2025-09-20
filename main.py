@@ -1664,21 +1664,6 @@ async def add_to_substitute_list(message: types.Message):
 
     await message.reply(f"✅ شما به لیست جایگزین اضافه شدید: {user_name}")
 
-#=======================
-# جایگزین بازیکن
-#=======================
-async def add_substitute(message: types.Message):
-    if message.text.strip() == "جایگزین":
-        group_id = message.chat.id
-        user_id = message.from_user.id
-        name = message.from_user.full_name
-
-        if group_id not in substitute_list:
-            substitute_list[group_id] = {}
-
-        substitute_list[group_id][user_id] = {"name": name}
-        await message.reply(f"✅ شما به لیست جایگزین اضافه شدید: {name}")
-
 # -----------------------------
 # نمایش لیست جایگزین برای گرداننده در پیوی
 # -----------------------------
