@@ -1632,6 +1632,38 @@ def register_send_roles_handler(dp):
         lambda c: send_roles_panel(c, dp.bot), 
         lambda c: c.data == "resend_roles"
     )
+
+# -----------------------------
+# اضافه شدن به لیست جایگزین
+# -----------------------------
+@dp.message_handler(lambda m: m.text and "جایگزین" in m.text)
+async def add_to_substitute_list(message: types.Message):
+    global substitute_list, group_chat_id
+
+    if not group_chat_id:
+        await message.reply("⚠️ هنوز هیچ بازی فعالی شروع نشده.")
+        return
+
+    user_id = message.from_user.id
+    user_name = message.from_user.full_name
+
+    # مطمئن میشیم substitute_list ساختار درست داشته باشه
+    if group_chat_id not in substitute_list:
+        substitute_list[group_chat_id] = {}
+
+    # جلوگیری از تکرار
+    if user_id in substitute_list[group_chat_id]:
+        await message.reply("ℹ️ شما قبلاً در لیست جایگزین هستید.")
+        return
+
+    # ذخیره با ساختار درست
+    substitute_list[group_chat_id][user_id] = {
+        "id": user_id,
+        "name": user_name
+    }
+
+    await message.reply(f"✅ شما به لیست جایگزین اضافه شدید: {user_name}")
+
 #=======================
 # جایگزین بازیکن
 #=======================
