@@ -99,6 +99,68 @@ def save_scenarios():
 
 scenarios = load_scenarios()
 
+# ======================
+# 🎮 مدیریت بازی در پیوی
+# ======================
+@dp.callback_query_handler(lambda c: c.data == "manage_game")
+async def manage_game_handler(callback: types.CallbackQuery):
+    if callback.message.chat.type != "private":
+        await callback.answer("⚠️ این گزینه فقط در پیوی کار می‌کند.", show_alert=True)
+        return
+
+    user_id = callback.from_user.id
+
+    # بررسی گرداننده یا ادمین‌ها
+    if not reserved_god:
+        await callback.answer("🚫 هنوز گرداننده مشخص نشده.", show_alert=True)
+        return
+
+    if user_id != reserved_god.get("id") and user_id not in admins:  # 👈 دقت کن به admins
+        await callback.answer("⛔ فقط گرداننده یا مدیران گروه می‌تونن وارد منوی مدیریت بشن!", show_alert=True)
+        return
+
+    if not group_chat_id:
+        await callback.answer("🚫 هنوز هیچ بازی فعالی شروع نشده.", show_alert=True)
+        return
+
+    kb = manage_game_keyboard(group_chat_id)
+
+    # 👇 به‌جای answer پیام رو درست بفرست
+    await callback.message.edit_text("🎮 منوی مدیریت بازی:", reply_markup=kb)
+    await callback.answer()
+
+# -----------------------------
+# اضافه شدن به لیست جایگزین
+# -----------------------------
+@dp.message_handler(lambda m: m.text and "جایگزین" in m.text)
+async def add_to_substitute_list(message: types.Message):
+    global substitute_list, group_chat_id
+
+    if not group_chat_id:
+        await message.reply("⚠️ هنوز هیچ بازی فعالی شروع نشده.")
+        return
+
+    user_id = message.from_user.id
+    user_name = message.from_user.full_name
+
+    # مطمئن میشیم substitute_list ساختار درست داشته باشه
+    if group_chat_id not in substitute_list:
+        substitute_list[group_chat_id] = {}
+
+    # جلوگیری از تکرار
+    if user_id in substitute_list[group_chat_id]:
+        await message.reply("ℹ️ شما قبلاً در لیست جایگزین هستید.")
+        return
+
+    # ذخیره با ساختار درست
+    substitute_list[group_chat_id][user_id] = {
+        "id": user_id,
+        "name": user_name
+    }
+
+    await message.reply(f"✅ شما به لیست جایگزین اضافه شدید: {user_name}")
+
+
 # =========================
 # صندلی من
 # =========================
@@ -298,35 +360,6 @@ async def help_handler(message: types.Message):
     )
     await message.reply(help_text)
 
-# ======================
-# 🎮 مدیریت بازی در پیوی
-# ======================
-@dp.callback_query_handler(lambda c: c.data == "manage_game")
-async def manage_game_handler(callback: types.CallbackQuery):
-    if callback.message.chat.type != "private":
-        await callback.answer("⚠️ این گزینه فقط در پیوی کار می‌کند.", show_alert=True)
-        return
-
-    user_id = callback.from_user.id
-
-    # بررسی گرداننده یا ادمین‌ها
-    if not reserved_god:
-        await callback.answer("🚫 هنوز گرداننده مشخص نشده.", show_alert=True)
-        return
-
-    if user_id != reserved_god.get("id") and user_id not in admins:  # 👈 دقت کن به admins
-        await callback.answer("⛔ فقط گرداننده یا مدیران گروه می‌تونن وارد منوی مدیریت بشن!", show_alert=True)
-        return
-
-    if not group_chat_id:
-        await callback.answer("🚫 هنوز هیچ بازی فعالی شروع نشده.", show_alert=True)
-        return
-
-    kb = manage_game_keyboard(group_chat_id)
-
-    # 👇 به‌جای answer پیام رو درست بفرست
-    await callback.message.edit_text("🎮 منوی مدیریت بازی:", reply_markup=kb)
-    await callback.answer()
 
 # ======================
 # لیست بازیکنان
@@ -440,9 +473,7 @@ async def update_group_admins(bot, chat_id):
     admins = await bot.get_chat_administrators(chat_id)
     group_admins = [admin.user.id for admin in admins]
     
-#--------++++
-# هندلر مدیریت بازی
-#------------
+
 # ======================
 # مدیریت بازی در پیوی
 # ======================
@@ -1633,90 +1664,9 @@ def register_send_roles_handler(dp):
         lambda c: c.data == "resend_roles"
     )
 
-# -----------------------------
-# اضافه شدن به لیست جایگزین
-# -----------------------------
-@dp.message_handler(lambda m: m.text and "جایگزین" in m.text)
-async def add_to_substitute_list(message: types.Message):
-    global substitute_list, group_chat_id
 
-    if not group_chat_id:
-        await message.reply("⚠️ هنوز هیچ بازی فعالی شروع نشده.")
-        return
 
-    user_id = message.from_user.id
-    user_name = message.from_user.full_name
 
-    # مطمئن میشیم substitute_list ساختار درست داشته باشه
-    if group_chat_id not in substitute_list:
-        substitute_list[group_chat_id] = {}
-
-    # جلوگیری از تکرار
-    if user_id in substitute_list[group_chat_id]:
-        await message.reply("ℹ️ شما قبلاً در لیست جایگزین هستید.")
-        return
-
-    # ذخیره با ساختار درست
-    substitute_list[group_chat_id][user_id] = {
-        "id": user_id,
-        "name": user_name
-    }
-
-    await message.reply(f"✅ شما به لیست جایگزین اضافه شدید: {user_name}")
-
-# -----------------------------
-# نمایش لیست جایگزین برای گرداننده در پیوی
-# -----------------------------
-async def show_substitute_list(callback: types.CallbackQuery):
-    group_id = get_group_for_admin(callback.from_user.id)  # تابع خودت
-    subs = substitute_list.get(group_id, {})
-    if not subs:
-        await callback.message.answer("⚠️ لیست جایگزین خالی است.")
-        return
-
-    kb = InlineKeyboardMarkup(row_width=1)
-    for user_id, data in subs.items():
-        kb.add(InlineKeyboardButton(data["name"], callback_data=f"choose_sub_{user_id}_{group_id}"))
-
-    await callback.message.answer("👥 لیست جایگزین:", reply_markup=kb)
-
-# -----------------------------
-# نمایش بازیکنان فعلی بازی بعد از انتخاب جایگزین
-# -----------------------------
-async def choose_substitute(callback: types.CallbackQuery):
-    parts = callback.data.split("_")
-    sub_id = int(parts[2])
-    group_id = int(parts[3])
-    kb = InlineKeyboardMarkup(row_width=1)
-
-    current_players = players_in_game.get(group_id, {})
-    for seat, p in current_players.items():
-        kb.add(InlineKeyboardButton(f"{seat}. {p['name']}", callback_data=f"replace_{sub_id}_{seat}_{group_id}"))
-
-    await callback.message.answer("👤 بازیکن جایگزین، بازیکن فعلی را انتخاب کنید:", reply_markup=kb)
-
-# -----------------------------
-# جایگزینی بازیکن
-# -----------------------------
-async def replace_player(callback: types.CallbackQuery):
-    parts = callback.data.split("_")
-    sub_id = int(parts[1])
-    seat = int(parts[2])
-    group_id = int(parts[3])
-
-    sub_data = substitute_list[group_id].pop(sub_id, None)
-    if not sub_data:
-        await callback.message.answer("⚠️ خطا: جایگزین پیدا نشد.")
-        return
-
-    # نگهداری نقش قبلی
-    old_player = players_in_game[group_id][seat]
-    role = old_player["role"]
-
-    # جایگزینی
-    players_in_game[group_id][seat] = {"id": sub_id, "name": sub_data["name"], "role": role}
-
-    await callback.message.answer(f"✅ بازیکن {old_player['name']} با {sub_data['name']} جایگزین شد.")
 #=======================
 # حذف بازیکن
 #=======================
