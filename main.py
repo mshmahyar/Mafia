@@ -63,6 +63,11 @@ post_challenge_advance = False   # وقتی اجرای چالش 'بعد' باش�
 substitute_list = {}  # group_id: {user_id: {"name": name}}
 players_in_game = {}  # group_id: {seat_number: {"id": user_id, "name": name, "role": role}}
 removed_players = {}  # group_id: {seat_number: {"id": user_id, "name": name, "roles": []}}
+reserved_god = None   # گرداننده انتخاب‌شده
+reserved_scenario = None  # سناریوی انتخاب‌شده
+reserved_list = []    # لیست رزرو اولیه
+waiting_list = []     # لیست انتظار جایگزین
+substitute_list = {}  # لیست جایگزین‌ها بر اساس گروه
 
 #=======================
 # داده های ریست در شروع روز
@@ -109,14 +114,9 @@ async def manage_game_handler(callback: types.CallbackQuery):
         return
 
     user_id = callback.from_user.id
-
-    # بررسی گرداننده یا ادمین‌ها
-    if not reserved_god:
-        await callback.answer("🚫 هنوز گرداننده مشخص نشده.", show_alert=True)
-        return
-
-    if user_id != reserved_god.get("id") and user_id not in admins:  # 👈 دقت کن به admins
-        await callback.answer("⛔ فقط گرداننده یا مدیران گروه می‌تونن وارد منوی مدیریت بشن!", show_alert=True)
+    # 🔴 قبلاً: if not reserved_god or (user_id != reserved_god.get("id") and user_id not in admins):
+    if not moderator_id or (user_id != moderator_id and user_id not in admins):
+        await callback.answer("⛔ فقط گرداننده یا مدیران گروه می‌تونن به منوی مدیریت دسترسی داشته باشن!", show_alert=True)
         return
 
     if not group_chat_id:
@@ -124,10 +124,9 @@ async def manage_game_handler(callback: types.CallbackQuery):
         return
 
     kb = manage_game_keyboard(group_chat_id)
-
-    # 👇 به‌جای answer پیام رو درست بفرست
     await callback.message.edit_text("🎮 منوی مدیریت بازی:", reply_markup=kb)
     await callback.answer()
+
 
 # -----------------------------
 # اضافه شدن به لیست جایگزین
