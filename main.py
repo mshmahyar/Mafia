@@ -653,13 +653,13 @@ async def create_reserved_list(callback: types.CallbackQuery):
         f"Date : {today_date}\n"
         f"Scenario : {reserved_scenario}\n"
         f"God : {reserved_god['name']}\n\n"
-        "◤◢◣◥◤◢◣◥◤◢◣◥◤◢◣◥◤◢◣◥\n\n"
+        "◤◢◣◥◤◢◣◥◤◢◣◥◤◥\n\n"
     )
 
     for item in reserved_list:
         text += f"{item['seat']:02d} --- خالی\n"
 
-    text += "\n◤◢◣◥◤◢◣◥◤◢◣◥◤◢◣◥◤◢◣◥\n\n༄"
+    text += "\n◤◢◣◥◤◢◣◥◤◢◣◥◤◥\n\n༄"
 
     # دکمه‌ها در سه ردیف
     kb = InlineKeyboardMarkup(row_width=3)
