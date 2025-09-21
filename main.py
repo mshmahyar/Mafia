@@ -1511,6 +1511,7 @@ def manage_game_keyboard(group_id: int):
     kb.add(InlineKeyboardButton("🔄 جایگزین بازیکن", callback_data="replace_player"))
     kb.add(InlineKeyboardButton("🎂 تولد بازیکن", callback_data="player_birthday"))
     kb.add(InlineKeyboardButton("⚔ وضعیت چالش", callback_data="challenge_status"))
+    kb.add(InlineKeyboardButton("⚙️ تنظیم گرداننده", callback_data="manage_moderator"))
     kb.add(InlineKeyboardButton("🚫 لغو بازی", callback_data=f"cancel_{group_id}"))
     kb.add(InlineKeyboardButton("⬅️ بازگشت", callback_data="back_main"))
     return kb
@@ -1598,8 +1599,46 @@ def turn_keyboard(seat, is_challenge=False):
     return kb
 
 # =======================
-# دستورات پنل پیوی
+# تنظیم گرداننده
 # =======================
+@dp.callback_query_handler(lambda c: c.data == "manage_moderator")
+async def manage_moderator_menu(callback: types.CallbackQuery):
+    kb = InlineKeyboardMarkup(row_width=1)
+    kb.add(InlineKeyboardButton("👤 گرداننده فعلی", callback_data="show_current_mod"))
+    kb.add(InlineKeyboardButton("🔄 تغییر گرداننده", callback_data="change_mod"))
+    kb.add(InlineKeyboardButton("⬅️ بازگشت", callback_data="back_manage_game"))
+
+    await callback.message.edit_text("⚙️ تنظیمات گرداننده:", reply_markup=kb)
+    await callback.answer()
+
+@dp.callback_query_handler(lambda c: c.data == "show_current_mod")
+async def show_current_moderator(callback: types.CallbackQuery):
+    if not moderator_id:
+        await callback.answer("⛔ گرداننده هنوز تنظیم نشده.", show_alert=True)
+        return
+    mod_name = players.get(moderator_id, "❓")
+    await callback.answer(f"👤 گرداننده فعلی: {mod_name}", show_alert=True)
+
+@dp.callback_query_handler(lambda c: c.data == "change_mod")
+async def change_moderator(callback: types.CallbackQuery):
+    admins = await bot.get_chat_administrators(group_chat_id)
+    kb = InlineKeyboardMarkup(row_width=1)
+    for admin in admins:
+        kb.add(InlineKeyboardButton(admin.user.full_name, callback_data=f"set_mod_{admin.user.id}"))
+
+    await callback.message.edit_text("🔄 انتخاب گرداننده جدید:", reply_markup=kb)
+    await callback.answer()
+
+
+@dp.callback_query_handler(lambda c: c.data.startswith("set_mod_"))
+async def set_new_moderator(callback: types.CallbackQuery):
+    global moderator_id
+    new_id = int(callback.data.split("set_mod_")[1])
+    moderator_id = new_id
+    new_name = callback.from_user.full_name if callback.from_user.id == new_id else players.get(new_id, "❓")
+
+    await callback.message.edit_text(f"✅ گرداننده جدید تنظیم شد: <b>{new_name}</b>", parse_mode="HTML")
+    await callback.answer()
 
 # =======================
 # وضعیت چالش
