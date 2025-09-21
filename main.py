@@ -71,6 +71,7 @@ reserved_scenario = None  # سناریوی انتخاب‌شده
 reserved_list = []    # لیست رزرو اولیه
 waiting_list = []     # لیست انتظار جایگزین
 substitute_list = {}  # لیست جایگزین‌ها بر اساس گروه
+extra_turns = []  # لیست بازیکن‌هایی که باید بعد از پایان دور یک ترن اضافه بگیرن
 
 #=======================
 # داده های ریست در شروع روز
@@ -407,7 +408,91 @@ async def list_players_handler(callback: types.CallbackQuery):
     await callback.message.answer(text, parse_mode="HTML")
     await callback.answer()
 
+# ===============================
+# ترن اضافه
+#================================
+@dp.callback_query_handler(lambda c: c.data == "extra_turn")
+async def extra_turn_menu(callback: types.CallbackQuery):
+    if not player_slots:
+        await callback.message.answer("⚠️ هیچ بازیکنی برای ترن اضافه وجود ندارد.")
+        return
 
+    kb = InlineKeyboardMarkup(row_width=1)
+    for seat, uid in sorted(player_slots.items()):
+        name = players.get(uid, "❓")
+        kb.add(InlineKeyboardButton(f"➕ {seat}. {name}", callback_data=f"do_extra_turn_{seat}"))
+
+    await callback.message.answer("🎭 انتخاب بازیکن برای ترن اضافه:", reply_markup=kb)
+    await callback.answer()
+
+# ===============================
+# تایید ترن اضافه
+#================================
+@dp.callback_query_handler(lambda c: c.data.startswith("do_extra_turn_"))
+async def do_extra_turn_handler(callback: types.CallbackQuery):
+    seat = int(callback.data.replace("do_extra_turn_", ""))
+    if seat not in player_slots:
+        await callback.answer("⚠️ بازیکن نامعتبر.", show_alert=True)
+        return
+
+    if seat not in extra_turns:
+        extra_turns.append(seat)
+
+    name = players.get(player_slots[seat], "❓")
+    await callback.message.answer(f"✅ یک ترن اضافه برای {name} ثبت شد.")
+    await callback.answer()
+
+# ===============================
+# سکوت بازیکن
+#================================
+@dp.callback_query_handler(lambda c: c.data == "mute_player")
+async def mute_player_menu(callback: types.CallbackQuery):
+    if not player_slots:
+        await callback.message.answer("⚠️ هیچ بازیکنی برای سکوت وجود ندارد.")
+        return
+
+    kb = InlineKeyboardMarkup(row_width=1)
+    for seat, uid in sorted(player_slots.items()):
+        name = players.get(uid, "❓")
+        kb.add(InlineKeyboardButton(f"🔇 {seat}. {name}", callback_data=f"do_mute_{uid}"))
+
+    await callback.message.answer("🔇 انتخاب بازیکن برای سکوت:", reply_markup=kb)
+    await callback.answer()
+
+
+@dp.callback_query_handler(lambda c: c.data.startswith("do_mute_"))
+async def do_mute_handler(callback: types.CallbackQuery):
+    uid = int(callback.data.replace("do_mute_", ""))
+    name = players.get(uid, "❓")
+    # اینجا باید لاجیک سکوت اضافه بشه (مثلا اضافه به mute_list)
+    await callback.message.answer(f"🔇 بازیکن {name} در سکوت قرار گرفت.")
+    await callback.answer()
+
+# ===============================
+# حذف سکوت
+#================================
+@dp.callback_query_handler(lambda c: c.data == "unmute_player")
+async def unmute_player_menu(callback: types.CallbackQuery):
+    if not player_slots:
+        await callback.message.answer("⚠️ هیچ بازیکنی برای حذف سکوت وجود ندارد.")
+        return
+
+    kb = InlineKeyboardMarkup(row_width=1)
+    for seat, uid in sorted(player_slots.items()):
+        name = players.get(uid, "❓")
+        kb.add(InlineKeyboardButton(f"🔊 {seat}. {name}", callback_data=f"do_unmute_{uid}"))
+
+    await callback.message.answer("🔊 انتخاب بازیکن برای حذف سکوت:", reply_markup=kb)
+    await callback.answer()
+
+
+@dp.callback_query_handler(lambda c: c.data.startswith("do_unmute_"))
+async def do_unmute_handler(callback: types.CallbackQuery):
+    uid = int(callback.data.replace("do_unmute_", ""))
+    name = players.get(uid, "❓")
+    # اینجا باید لاجیک حذف سکوت اضافه بشه (مثلا حذف از mute_list)
+    await callback.message.answer(f"🔊 سکوت بازیکن {name} برداشته شد.")
+    await callback.answer()
 
 # ======================
 # کیبوردها
@@ -455,6 +540,9 @@ def manage_game_keyboard(group_id: int):
     kb.add(InlineKeyboardButton("🗑 حذف بازیکن", callback_data="remove_player"))
     kb.add(InlineKeyboardButton("🔄 جایگزین بازیکن", callback_data="replace_player"))
     kb.add(InlineKeyboardButton("🎂 تولد بازیکن", callback_data="player_birthday"))
+    kb.add(InlineKeyboardButton("➕ ترن اضافه", callback_data="extra_turn"))   # ➕ ترن
+    kb.add(InlineKeyboardButton("🔇 سکوت بازیکن", callback_data="mute_player"))     # ➕ سکوت
+    kb.add(InlineKeyboardButton("🔊 حذف سکوت", callback_data="unmute_player"))     # ➕ حذف سکوت
     kb.add(InlineKeyboardButton("⚔ وضعیت چالش", callback_data="challenge_status"))
     kb.add(InlineKeyboardButton("🚫 لغو بازی", callback_data=f"cancel_{group_id}"))
     kb.add(InlineKeyboardButton("⬅️ بازگشت", callback_data="back_main"))
@@ -2667,6 +2755,15 @@ async def next_turn(callback: types.CallbackQuery):
 
         # اگر چالشی نبود → برو نفر بعدی
         current_turn_index += 1
+
+    if extra_turns:
+    seat = extra_turns.pop(0)  # اولین بازیکن با ترن اضافه
+    await start_turn(seat, duration=DEFAULT_TURN_DURATION, is_challenge=False)
+    return  # دوباره نوبت‌دهی ادامه پیدا می‌کنه
+    else:
+        # اینجا برو به شب
+        await start_night_phase()
+
 
     # =========================
     #  پایان روز یا ادامه نوبت
