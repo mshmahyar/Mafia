@@ -2247,22 +2247,23 @@ async def distribute_roles():
 #==================
 @dp.callback_query_handler(lambda c: c.data == "start_round")
 async def start_round_handler(callback: types.CallbackQuery):
-    global turn_order, current_turn_index, round_active
+    global current_turn_index
+
+    # فقط گرداننده
+    if callback.from_user.id != moderator_id:
+        await callback.answer("❌ فقط گرداننده می‌تواند دور را شروع کند.", show_alert=True)
+        return
 
     if not turn_order:
-        seats_list = sorted(player_slots.keys())
-        if not seats_list:
-            await callback.answer("⚠️ هیچ بازیکنی در بازی نیست.", show_alert=True)
-            return
-        turn_order = seats_list[:]  # همه بازیکن‌ها به ترتیب صندلی
+        await callback.answer("⚠️ ترتیب نوبت‌ها مشخص نشده.", show_alert=True)
+        return
 
-    round_active = True
-    current_turn_index = 0  # شروع از سر صحبت
+    # شروع از اول
+    current_turn_index = 0
+    first_seat = turn_order[current_turn_index]
 
-    first_seat = turn_order[current_turn_index]  # صندلی یا آی‌دی بازیکن اول
-    await start_turn(first_seat, duration=DEFAULT_TURN_DURATION, is_challenge=False)
-    await callback.answer()
-
+    await start_turn(first_seat, duration=DEFAULT_TURN_DURATION)
+    await callback.answer("✅ دور جدید شروع شد.")
 #======================
 # تابع کمکی برای ساخت / بروزرسانی پیام گروه (پیام «بازی شروع شد»
 #======================
@@ -2588,7 +2589,18 @@ async def start_turn(seat, duration=DEFAULT_TURN_DURATION, is_challenge=False):
     - کیبورد مناسب را می‌سازد
     - تایمر زنده را با countdown ایجاد می‌کند
     """
-    global current_turn_message_id, turn_timer_task, challenge_mode
+    global current_turn_message_id, turn_timer_task, challenge_mode, muted_players, extra_turns
+
+    player_id = player_slots.get(seat)
+    if not player_id:
+        await advance_turns()
+        return
+
+    # بررسی سکوت
+    if player_id in muted_players:
+        await bot.send_message(group_chat_id, f"🔇 بازیکن {players[player_id]} در سکوت است و نوبتش رد شد.")
+        await advance_turns()
+        return
 
     if not group_chat_id:
         return
@@ -2637,6 +2649,8 @@ async def start_turn(seat, duration=DEFAULT_TURN_DURATION, is_challenge=False):
     # راه‌اندازی تایمر (task)
     turn_timer_task = asyncio.create_task(countdown(seat, duration, msg.message_id, is_challenge))
 
+    await advance_turns()
+
 # ======================
 # هندلر دکمه شروع دور
 # ======================
@@ -2657,26 +2671,27 @@ async def handle_start_turn(callback: types.CallbackQuery):
 
     await callback.answer()
 
-# --------------------------
-# مدیریت رفتن به نوبت بعدی
-# --------------------------
+# ========================
+# جلو بردن نوبت‌ها
+# ========================
 async def advance_turns():
     global current_turn_index, turn_order, extra_turns
 
-    # اگر هنوز بازیکنان توی لیست اصلی باقی موندن
-    if current_turn_index < len(turn_order):
-        seat = turn_order[current_turn_index]
-        await start_turn(seat)
-        return
-
-    # وقتی همه بازیکنان صحبت کردن → اول ترن اضافه‌ها رو اجرا کن
+    # اگر ترن اضافه ثبت شده
     if extra_turns:
         seat = extra_turns.pop(0)
-        await start_turn(seat)
+        await start_turn(seat, duration=DEFAULT_TURN_DURATION)
         return
 
-    # هیچ نوبتی نموند → برو شب
-    await start_night_phase()
+    # برو نفر بعدی
+    current_turn_index += 1
+    if current_turn_index < len(turn_order):
+        next_seat = turn_order[current_turn_index]
+        await start_turn(next_seat, duration=DEFAULT_TURN_DURATION)
+    else:
+        # همه صحبت کردن → برو به شب
+        await start_night_phase()
+
 
 
 #================
