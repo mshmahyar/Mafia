@@ -32,8 +32,8 @@ bot = Bot(token=API_TOKEN, parse_mode="HTML")
 storage = MemoryStorage()
 dp = Dispatcher(bot)
 # فقط این گروه اجازه اجرای بازی داره
-ALLOWED_GROUP_ID = -1001760002160
-
+#ALLOWED_GROUP_ID = -1001760002160 گروه اصلی
+ALLOWED_GROUP_ID = -1002356353761
 
 # ======================
 # متغیرهای سراسری
@@ -2757,9 +2757,9 @@ async def next_turn(callback: types.CallbackQuery):
         current_turn_index += 1
 
     if extra_turns:
-    seat = extra_turns.pop(0)  # اولین بازیکن با ترن اضافه
-    await start_turn(seat, duration=DEFAULT_TURN_DURATION, is_challenge=False)
-    return  # دوباره نوبت‌دهی ادامه پیدا می‌کنه
+        seat = extra_turns.pop(0)  # اولین بازیکن با ترن اضافه
+        await start_turn(seat, duration=DEFAULT_TURN_DURATION, is_challenge=False)
+        return  # دوباره نوبت‌دهی ادامه پیدا می‌کنه
     else:
         # اینجا برو به شب
         await start_night_phase()
