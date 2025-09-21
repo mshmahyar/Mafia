@@ -2649,7 +2649,6 @@ async def start_turn(seat, duration=DEFAULT_TURN_DURATION, is_challenge=False):
     # راه‌اندازی تایمر (task)
     turn_timer_task = asyncio.create_task(countdown(seat, duration, msg.message_id, is_challenge))
 
-    await advance_turns()
 
 # ======================
 # هندلر دکمه شروع دور
