@@ -72,6 +72,7 @@ reserved_list = []    # لیست رزرو اولیه
 waiting_list = []     # لیست انتظار جایگزین
 substitute_list = {}  # لیست جایگزین‌ها بر اساس گروه
 extra_turns = []  # لیست بازیکن‌هایی که باید بعد از پایان دور یک ترن اضافه بگیرن
+muted_players = set()  # لیست بازیکن‌های ساکت (global)
 
 #=======================
 # داده های ریست در شروع روز
@@ -2597,8 +2598,15 @@ async def start_turn(seat, duration=DEFAULT_TURN_DURATION, is_challenge=False):
         await bot.send_message(group_chat_id, f"⚠️ صندلی {seat} بازیکنی ندارد.")
         return
 
+
     user_id = player_slots[seat]
     player_name = players.get(user_id, "بازیکن")
+    # 🔇 اگر بازیکن ساکت باشه → پرش کن
+    if player_id in muted_players:
+        await bot.send_message(group_chat_id, f"🔇 بازیکن {player_name} سکوت است و نوبتش رد شد.")
+        current_turn_index += 1
+        await advance_turns()  # برو نفر بعد
+        return
     mention = f"<a href='tg://user?id={user_id}'>{html.escape(str(player_name))}</a>"
 
     # حالت چالش را تنظیم کن
@@ -2648,6 +2656,28 @@ async def handle_start_turn(callback: types.CallbackQuery):
     await start_turn(first_seat)
 
     await callback.answer()
+
+# --------------------------
+# مدیریت رفتن به نوبت بعدی
+# --------------------------
+async def advance_turns():
+    global current_turn_index, turn_order, extra_turns
+
+    # اگر هنوز بازیکنان توی لیست اصلی باقی موندن
+    if current_turn_index < len(turn_order):
+        seat = turn_order[current_turn_index]
+        await start_turn(seat)
+        return
+
+    # وقتی همه بازیکنان صحبت کردن → اول ترن اضافه‌ها رو اجرا کن
+    if extra_turns:
+        seat = extra_turns.pop(0)
+        await start_turn(seat)
+        return
+
+    # هیچ نوبتی نموند → برو شب
+    await start_night_phase()
+
 
 #================
 # چالش آف
@@ -2777,7 +2807,7 @@ async def next_turn(callback: types.CallbackQuery):
         await bot.send_message(group_chat_id, "✅ همه بازیکنان صحبت کردند. فاز روز پایان یافت.", reply_markup=kb)
     else:
         next_seat = turn_order[current_turn_index]
-        await start_turn(next_seat)
+        await advance_turns()
 
 
 #========================
