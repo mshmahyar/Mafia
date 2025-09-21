@@ -1594,6 +1594,9 @@ def manage_game_keyboard(group_id: int):
     kb.add(InlineKeyboardButton("🗑 حذف بازیکن", callback_data="remove_player"))
     kb.add(InlineKeyboardButton("🔄 جایگزین بازیکن", callback_data="replace_player"))
     kb.add(InlineKeyboardButton("🎂 تولد بازیکن", callback_data="player_birthday"))
+    kb.add(InlineKeyboardButton("➕ ترن اضافه", callback_data="extra_turn"))   # ➕ ترن
+    kb.add(InlineKeyboardButton("🔇 سکوت بازیکن", callback_data="mute_player"))     # ➕ سکوت
+    kb.add(InlineKeyboardButton("🔊 حذف سکوت", callback_data="unmute_player"))     # ➕ حذف سکوت
     kb.add(InlineKeyboardButton("⚔ وضعیت چالش", callback_data="challenge_status"))
     kb.add(InlineKeyboardButton("🚫 لغو بازی", callback_data=f"cancel_{group_id}"))
     kb.add(InlineKeyboardButton("⬅️ بازگشت", callback_data="back_main"))
