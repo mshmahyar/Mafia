@@ -32,8 +32,8 @@ bot = Bot(token=API_TOKEN, parse_mode="HTML")
 storage = MemoryStorage()
 dp = Dispatcher(bot)
 # فقط این گروه اجازه اجرای بازی داره
-#ALLOWED_GROUP_ID = -1001760002160 گروه اصلی
-ALLOWED_GROUP_ID = -1002356353761
+ALLOWED_GROUP_ID = -1001760002160
+
 
 # ======================
 # متغیرهای سراسری
@@ -72,7 +72,6 @@ reserved_list = []    # لیست رزرو اولیه
 waiting_list = []     # لیست انتظار جایگزین
 substitute_list = {}  # لیست جایگزین‌ها بر اساس گروه
 extra_turns = []  # لیست بازیکن‌هایی که باید بعد از پایان دور یک ترن اضافه بگیرن
-muted_players = set()  # لیست بازیکن‌های ساکت (global)
 
 #=======================
 # داده های ریست در شروع روز
@@ -409,91 +408,7 @@ async def list_players_handler(callback: types.CallbackQuery):
     await callback.message.answer(text, parse_mode="HTML")
     await callback.answer()
 
-# ===============================
-# ترن اضافه
-#================================
-@dp.callback_query_handler(lambda c: c.data == "extra_turn")
-async def extra_turn_menu(callback: types.CallbackQuery):
-    if not player_slots:
-        await callback.message.answer("⚠️ هیچ بازیکنی برای ترن اضافه وجود ندارد.")
-        return
 
-    kb = InlineKeyboardMarkup(row_width=1)
-    for seat, uid in sorted(player_slots.items()):
-        name = players.get(uid, "❓")
-        kb.add(InlineKeyboardButton(f"➕ {seat}. {name}", callback_data=f"do_extra_turn_{seat}"))
-
-    await callback.message.answer("🎭 انتخاب بازیکن برای ترن اضافه:", reply_markup=kb)
-    await callback.answer()
-
-# ===============================
-# تایید ترن اضافه
-#================================
-@dp.callback_query_handler(lambda c: c.data.startswith("do_extra_turn_"))
-async def do_extra_turn_handler(callback: types.CallbackQuery):
-    seat = int(callback.data.replace("do_extra_turn_", ""))
-    if seat not in player_slots:
-        await callback.answer("⚠️ بازیکن نامعتبر.", show_alert=True)
-        return
-
-    if seat not in extra_turns:
-        extra_turns.append(seat)
-
-    name = players.get(player_slots[seat], "❓")
-    await callback.message.answer(f"✅ یک ترن اضافه برای {name} ثبت شد.")
-    await callback.answer()
-
-# ===============================
-# سکوت بازیکن
-#================================
-@dp.callback_query_handler(lambda c: c.data == "mute_player")
-async def mute_player_menu(callback: types.CallbackQuery):
-    if not player_slots:
-        await callback.message.answer("⚠️ هیچ بازیکنی برای سکوت وجود ندارد.")
-        return
-
-    kb = InlineKeyboardMarkup(row_width=1)
-    for seat, uid in sorted(player_slots.items()):
-        name = players.get(uid, "❓")
-        kb.add(InlineKeyboardButton(f"🔇 {seat}. {name}", callback_data=f"do_mute_{uid}"))
-
-    await callback.message.answer("🔇 انتخاب بازیکن برای سکوت:", reply_markup=kb)
-    await callback.answer()
-
-
-@dp.callback_query_handler(lambda c: c.data.startswith("do_mute_"))
-async def do_mute_handler(callback: types.CallbackQuery):
-    uid = int(callback.data.replace("do_mute_", ""))
-    name = players.get(uid, "❓")
-    # اینجا باید لاجیک سکوت اضافه بشه (مثلا اضافه به mute_list)
-    await callback.message.answer(f"🔇 بازیکن {name} در سکوت قرار گرفت.")
-    await callback.answer()
-
-# ===============================
-# حذف سکوت
-#================================
-@dp.callback_query_handler(lambda c: c.data == "unmute_player")
-async def unmute_player_menu(callback: types.CallbackQuery):
-    if not player_slots:
-        await callback.message.answer("⚠️ هیچ بازیکنی برای حذف سکوت وجود ندارد.")
-        return
-
-    kb = InlineKeyboardMarkup(row_width=1)
-    for seat, uid in sorted(player_slots.items()):
-        name = players.get(uid, "❓")
-        kb.add(InlineKeyboardButton(f"🔊 {seat}. {name}", callback_data=f"do_unmute_{uid}"))
-
-    await callback.message.answer("🔊 انتخاب بازیکن برای حذف سکوت:", reply_markup=kb)
-    await callback.answer()
-
-
-@dp.callback_query_handler(lambda c: c.data.startswith("do_unmute_"))
-async def do_unmute_handler(callback: types.CallbackQuery):
-    uid = int(callback.data.replace("do_unmute_", ""))
-    name = players.get(uid, "❓")
-    # اینجا باید لاجیک حذف سکوت اضافه بشه (مثلا حذف از mute_list)
-    await callback.message.answer(f"🔊 سکوت بازیکن {name} برداشته شد.")
-    await callback.answer()
 
 # ======================
 # کیبوردها
@@ -1595,9 +1510,6 @@ def manage_game_keyboard(group_id: int):
     kb.add(InlineKeyboardButton("🗑 حذف بازیکن", callback_data="remove_player"))
     kb.add(InlineKeyboardButton("🔄 جایگزین بازیکن", callback_data="replace_player"))
     kb.add(InlineKeyboardButton("🎂 تولد بازیکن", callback_data="player_birthday"))
-    kb.add(InlineKeyboardButton("➕ ترن اضافه", callback_data="extra_turn"))   # ➕ ترن
-    kb.add(InlineKeyboardButton("🔇 سکوت بازیکن", callback_data="mute_player"))     # ➕ سکوت
-    kb.add(InlineKeyboardButton("🔊 حذف سکوت", callback_data="unmute_player"))     # ➕ حذف سکوت
     kb.add(InlineKeyboardButton("⚔ وضعیت چالش", callback_data="challenge_status"))
     kb.add(InlineKeyboardButton("🚫 لغو بازی", callback_data=f"cancel_{group_id}"))
     kb.add(InlineKeyboardButton("⬅️ بازگشت", callback_data="back_main"))
@@ -2247,23 +2159,22 @@ async def distribute_roles():
 #==================
 @dp.callback_query_handler(lambda c: c.data == "start_round")
 async def start_round_handler(callback: types.CallbackQuery):
-    global current_turn_index
-
-    # فقط گرداننده
-    if callback.from_user.id != moderator_id:
-        await callback.answer("❌ فقط گرداننده می‌تواند دور را شروع کند.", show_alert=True)
-        return
+    global turn_order, current_turn_index, round_active
 
     if not turn_order:
-        await callback.answer("⚠️ ترتیب نوبت‌ها مشخص نشده.", show_alert=True)
-        return
+        seats_list = sorted(player_slots.keys())
+        if not seats_list:
+            await callback.answer("⚠️ هیچ بازیکنی در بازی نیست.", show_alert=True)
+            return
+        turn_order = seats_list[:]  # همه بازیکن‌ها به ترتیب صندلی
 
-    # شروع از اول
-    current_turn_index = 0
-    first_seat = turn_order[current_turn_index]
+    round_active = True
+    current_turn_index = 0  # شروع از سر صحبت
 
-    await start_turn(first_seat, duration=DEFAULT_TURN_DURATION)
-    await callback.answer("✅ دور جدید شروع شد.")
+    first_seat = turn_order[current_turn_index]  # صندلی یا آی‌دی بازیکن اول
+    await start_turn(first_seat, duration=DEFAULT_TURN_DURATION, is_challenge=False)
+    await callback.answer()
+
 #======================
 # تابع کمکی برای ساخت / بروزرسانی پیام گروه (پیام «بازی شروع شد»
 #======================
@@ -2583,40 +2494,40 @@ async def head_set(callback: types.CallbackQuery):
 # شروع بازی و نوبت اول
 # ======================
 async def start_turn(seat, duration=DEFAULT_TURN_DURATION, is_challenge=False):
-    global current_turn_message_id, turn_timer_task, current_active_seat
+    """
+    شروع نوبت برای یک seat (صندلی). این تابع:
+    - پیام نوبت را در گروه می‌فرستد و پین می‌کند
+    - کیبورد مناسب را می‌سازد
+    - تایمر زنده را با countdown ایجاد می‌کند
+    """
+    global current_turn_message_id, turn_timer_task, challenge_mode
 
-    # بدست آوردن player_id و چک‌ها
-    player_id = player_slots.get(seat)
-    if not player_id:
-        # اگر صندلی خالیست مستقیم بریم به نفر بعد
-        await finish_current_turn(seat)  # این متد خودش advance را صدا می‌زند
+    if not group_chat_id:
         return
 
-    # اگر muted است، نوبتش را رد کن
-    if player_id in muted_players:
+    # seat باید در player_slots باشد
+    if seat not in player_slots:
+        await bot.send_message(group_chat_id, f"⚠️ صندلی {seat} بازیکنی ندارد.")
+        return
+
+    user_id = player_slots[seat]
+    player_name = players.get(user_id, "بازیکن")
+    mention = f"<a href='tg://user?id={user_id}'>{html.escape(str(player_name))}</a>"
+
+    # حالت چالش را تنظیم کن
+    challenge_mode = bool(is_challenge)
+
+    # unpin پیام قبلی اگر لازم
+    if current_turn_message_id:
         try:
-            await bot.send_message(group_chat_id, f"🔇 بازیکن {html.escape(players.get(player_id,'❓'))} سکوت است و نوبتش رد شد.")
+            await bot.unpin_chat_message(group_chat_id, current_turn_message_id)
         except:
             pass
-        await finish_current_turn(seat)
-        return
 
-    # ثبت active seat
-    current_active_seat = seat
-
-    # آنپین پیام قبلی در صورت وجود
-    try:
-        if current_turn_message_id:
-            await bot.unpin_chat_message(group_chat_id, current_turn_message_id)
-    except:
-        pass
-
-    # ارسال پیام نوبت جدید
-    mention = f"<a href='tg://user?id={player_id}'>{html.escape(players.get(player_id,'بازیکن'))}</a>"
     text = f"⏳ {duration//60:02d}:{duration%60:02d}\n🎙 نوبت صحبت {mention} است. ({duration} ثانیه)"
     msg = await bot.send_message(group_chat_id, text, parse_mode="HTML", reply_markup=turn_keyboard(seat, is_challenge))
 
-    # تلاش برای پین کردن پیام جدید
+    # تلاش برای پین کردن پیام جدید (اختیاری)
     try:
         await bot.pin_chat_message(group_chat_id, msg.message_id, disable_notification=True)
     except:
@@ -2624,18 +2535,12 @@ async def start_turn(seat, duration=DEFAULT_TURN_DURATION, is_challenge=False):
 
     current_turn_message_id = msg.message_id
 
-    # لغو timer قبلی و ایجاد جدید
-    try:
-        if turn_timer_task and not turn_timer_task.done():
-            turn_timer_task.cancel()
-    except:
-        pass
+    # لغو تایمر قبلی
+    if turn_timer_task and not turn_timer_task.done():
+        turn_timer_task.cancel()
 
-    # راه‌اندازی تایمر (قابل cancel توسط نکست)
+    # راه‌اندازی تایمر (task)
     turn_timer_task = asyncio.create_task(countdown(seat, duration, msg.message_id, is_challenge))
-
-
-
 
 # ======================
 # هندلر دکمه شروع دور
@@ -2656,34 +2561,6 @@ async def handle_start_turn(callback: types.CallbackQuery):
     await start_turn(first_seat)
 
     await callback.answer()
-
-# ========================
-# جلو بردن نوبت‌ها
-# ========================
-async def advance_turns():
-    """
-    تصمیم می‌گیرد نوبت بعدی کیست:
-    - اگر هنوز در turn_order عنصر مانده → آن را start می‌کند
-    - در غیر این صورت اگر extra_turns موجود است، یکی را اجرا می‌کند
-    - در غیر این صورت => شروع شب
-    """
-    global current_turn_index, turn_order, extra_turns
-
-    # اگر هنوز در نوبت اصلی داریم
-    if current_turn_index < len(turn_order):
-        next_seat = turn_order[current_turn_index]
-        await start_turn(next_seat, duration=DEFAULT_TURN_DURATION)
-        return
-
-    # اگر نوبت‌های اصلی تمام شده، اول extra_turns رو چک کن
-    if extra_turns:
-        seat = extra_turns.pop(0)
-        await start_turn(seat, duration=DEFAULT_TURN_DURATION)
-        return
-
-    # همه تموم شد → برو شب
-    await start_night_phase()
-
 
 #================
 # چالش آف
@@ -2712,123 +2589,50 @@ async def challenge_toggle_handler(callback: types.CallbackQuery):
 #=============================
 # تایمر زندهٔ نوبت (ویرایش پیام هر N ثانیه)
 #=============================
-async def countdown(seat: int, duration: int, message_id: int, is_challenge: bool):
-    """
-    تایمر نوبت: هر ثانیه پیام را آپدیت می‌کند. اگر canceled شود (نکست زده شود) quietly برمی‌گردد.
-    اگر به پایان برسد، finish_current_turn را صدا می‌زند.
-    """
+async def countdown(seat, duration, message_id, is_challenge=False):
     remaining = duration
+    user_id = player_slots.get(seat)
+    player_name = players.get(user_id, "بازیکن")
+    mention = f"<a href='tg://user?id={user_id}'>{html.escape(str(player_name))}</a>"
+
     try:
-        while remaining >= 0:
-            # فقط آپدیت زمان نمایش (اختیاری: هر 1 ثانیه)
-            mins = remaining // 60
-            secs = remaining % 60
-            text = f"⏳ {mins:02d}:{secs:02d}\n"
-            player_id = player_slots.get(seat)
-            player_name = players.get(player_id, "❓")
-            text += f"🎙 نوبت صحبت {html.escape(player_name)} است. ({remaining} ثانیه)"
+        while remaining > 0:
+            await asyncio.sleep(5)
+            remaining -= 5
+            new_text = f"⏳ {max(0, remaining)//60:02d}:{max(0, remaining)%60:02d}\n🎙 نوبت صحبت {mention} است. ({max(0, remaining)} ثانیه)"
             try:
-                await bot.edit_message_text(text, chat_id=group_chat_id, message_id=message_id,
+                await bot.edit_message_text(new_text, chat_id=group_chat_id, message_id=message_id,
                                             parse_mode="HTML", reply_markup=turn_keyboard(seat, is_challenge))
             except:
                 pass
-            if remaining == 0:
-                break
-            await asyncio.sleep(1)
-            remaining -= 1
+        # پایان زمان → پیام موقتی
+        await send_temp_message(group_chat_id, f"⏳ زمان {mention} به پایان رسید.", delay=5)
     except asyncio.CancelledError:
-        # اگر لغو شد (مثلاً نکست زده شد) همینجا تموم می‌شه؛ نهایی‌سازی توسط caller (نکست) انجام می‌شود
         return
-    # تایم اوت مرتب اجرا شود:
-    await finish_current_turn(seat, timed_out=True)
-
 
 
 # ======================
 # نکست نوبت
 # ======================
 @dp.callback_query_handler(lambda c: c.data.startswith("next_"))
-async def handle_next(callback: types.CallbackQuery):
-    global turn_timer_task, current_active_seat
+async def next_turn(callback: types.CallbackQuery):
+    global current_turn_index, challenge_mode
+    global paused_main_player, paused_main_duration, post_challenge_advance
 
     try:
         seat = int(callback.data.split("_", 1)[1])
-    except:
-        await callback.answer("⚠️ اطلاعات نوبت نامعتبر است.", show_alert=True)
+    except Exception:
+        await bot.send_message(group_chat_id, "⚠️ دادهٔ نادرست برای نکست.")
         return
 
-    # دسترسی: اجازه به گرداننده، خود بازیکن یا ادمین‌ها
-    user_id = callback.from_user.id
-    allowed = (user_id == moderator_id) or (player_slots.get(seat) == user_id) or (user_id in admins)
-    if not allowed:
-        await callback.answer("❌ مجاز نیستید این دکمه را فشار دهید.", show_alert=True)
+    player_uid = player_slots.get(seat)
+    if callback.from_user.id != moderator_id and callback.from_user.id != player_uid:
+        await callback.answer("❌ فقط بازیکن مربوطه یا گرداننده می‌تواند نوبت را پایان دهد.", show_alert=True)
         return
 
-    # حتماً باید این نکست برای نوبت جاری باشد (یا اگر گرداننده است، اجازهٔ اجبار بده)
-    if current_active_seat is not None and seat != current_active_seat and callback.from_user.id != moderator_id:
-        await callback.answer("⚠️ این بازیکن در حال حاضر نوبتش نیست.", show_alert=True)
-        return
-
-    # تایمر را لغو کن (countdown یک CancelledError خواهد گرفت)
-    try:
-        if turn_timer_task and not turn_timer_task.done():
-            turn_timer_task.cancel()
-    except:
-        pass
-
-    # پاسخ فوری به کاربر (تا callback timeout نشود)
-    await callback.answer("⏭ نوبت به مرحلهٔ بعدی منتقل شد.")
-
-    # نهایی‌سازی و advance
-    await finish_current_turn(seat, timed_out=False)
-
-# -----------------------
-# helper: پایان نوبت جاری (جهت استفاده توسط countdown یا دکمه نکست)
-# -----------------------
-async def finish_current_turn(seat, timed_out: bool = False):
-    """
-    پاک‌سازی بعد از پایان نوبت seat، و سپس رفتن به نوبت بعدی.
-    """
-    global current_turn_message_id, turn_timer_task, current_active_seat, current_turn_index
-
-    # حفاظت: اگر صندلی نامعتبر باشد، فقط advance کن
-    if seat is None:
-        await advance_turns()
-        return
-
-    player_id = player_slots.get(seat)
-    player_name = players.get(player_id, "❓")
-
-    # اطلاع در گروه (اختیاری، برای شفافیت)
-    if timed_out:
-        try:
-            await bot.send_message(group_chat_id, f"⏰ زمان صحبت {html.escape(player_name)} به پایان رسید.")
-        except:
-            pass
-
-    # لغو تایمر در صورت وجود (تضمینی)
-    try:
-        if turn_timer_task and not turn_timer_task.done():
-            turn_timer_task.cancel()
-    except:
-        pass
-
-    # پاک‌سازی پیام نوبت (اگر پین شده، آنپین کن)
-    try:
-        if current_turn_message_id:
-            await bot.unpin_chat_message(group_chat_id, current_turn_message_id)
-    except:
-        pass
-
-    current_turn_message_id = None
-    current_active_seat = None
-
-    # اگر این صندلی مربوط به لیست نوبت اصلی بود، ایندکس را جلو ببر
-    if current_turn_index < len(turn_order) and turn_order[current_turn_index] == seat:
-        current_turn_index += 1
-
-    # بعد از تمام اقدامات، برو نفر بعدی
-    await advance_turns()
+    # لغو تایمر
+    if turn_timer_task and not turn_timer_task.done():
+        turn_timer_task.cancel()
 
     # =========================
     #  حالت "چالش"
@@ -2868,15 +2672,6 @@ async def finish_current_turn(seat, timed_out: bool = False):
         # اگر چالشی نبود → برو نفر بعدی
         current_turn_index += 1
 
-    if extra_turns:
-        seat = extra_turns.pop(0)  # اولین بازیکن با ترن اضافه
-        await start_turn(seat, duration=DEFAULT_TURN_DURATION, is_challenge=False)
-        return  # دوباره نوبت‌دهی ادامه پیدا می‌کنه
-    else:
-        # اینجا برو به شب
-        await start_night_phase()
-
-
     # =========================
     #  پایان روز یا ادامه نوبت
     # =========================
@@ -2886,7 +2681,7 @@ async def finish_current_turn(seat, timed_out: bool = False):
         await bot.send_message(group_chat_id, "✅ همه بازیکنان صحبت کردند. فاز روز پایان یافت.", reply_markup=kb)
     else:
         next_seat = turn_order[current_turn_index]
-        await advance_turns()
+        await start_turn(next_seat)
 
 
 #========================
