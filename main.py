@@ -1950,102 +1950,87 @@ async def join_game_callback(callback: types.CallbackQuery):
     await update_lobby()
 
 
-
+# ===============================
+# خروج از بازی
+#================================
 
 @dp.callback_query_handler(lambda c: c.data == "leave_game")
 async def leave_game_callback(callback: types.CallbackQuery):
-    global players, player_slots, waiting_list
-    user = callback.from_user.id
-    if user_id not in players:
-        await callback.answer("⚠️ شما در لیست بازی نیستید.", show_alert=True)
-        return
+    global players, player_slots, waiting_list, waiting_message_id
 
-    left_seat = None
-    for seat, uid in list(player_slots.items()):
-        if uid == user_id:
-            left_seat = seat
-            del player_slots[seat]
-            break
-    players.pop(user_id, None)
-
-    await callback.answer("❌ شما از بازی خارج شدید.")
-    await update_lobby()
-
-    # اگر لیست رزرو خالی نبود → جایگزین کن
-    if left_seat and waiting_list:
-        sub = waiting_list.pop(0)
-        player_slots[left_seat] = sub["id"]
-        players[sub["id"]] = sub["name"]
-        await bot.send_message(group_chat_id, f"♻️ {sub['name']} جایگزین شد (صندلی {left_seat}).")
-        await update_lobby()
-        if not waiting_list:
-            # اگر رزروی نمونده پیام رزرو رو پاک کن
-            global waiting_message_id
-            if waiting_message_id:
-                try:
-                    await bot.delete_message(group_chat_id, waiting_message_id)
-                except:
-                    pass
-                waiting_message_id = None
-
+    user_id = callback.from_user.id
 
     # جلوگیری از خروج در حین بازی
     if game_running:
         await callback.answer("❌ بازی در جریان است. نمی‌توانید خارج شوید.", show_alert=True)
         return
 
-    if user.id not in players:
-        await callback.answer("❌ شما در لیست بازی نیستید!", show_alert=True)
+    # پیدا کردن صندلی بازیکن
+    seat = next((s for s, uid in player_slots.items() if uid == user_id), None)
+    if seat is None:
+        await callback.answer("⚠️ شما در لیست اصلی نیستید.", show_alert=True)
         return
-    del players[user.id]
-    players.pop(user.id)
 
-    # آزاد کردن صندلی اگر انتخاب کرده بود
-    for slot, uid in list(player_slots.items()):
-        if uid == user.id:
-            del player_slots[slot]
-
-    await callback.answer("✅ شما از بازی خارج شدید!")
+    # حذف بازیکن
+    player_slots.pop(seat, None)
+    players.pop(user_id, None)
+    await callback.answer("❌ شما از بازی خارج شدید.")
     await update_lobby()
 
+    # اگر لیست رزرو خالی نبود → جایگزین کن
+    if waiting_list:
+        sub = waiting_list.pop(0)
+        player_slots[seat] = sub["id"]
+        players[sub["id"]] = sub["name"]
+
+        await bot.send_message(group_chat_id, f"♻️ {sub['name']} جایگزین شد (صندلی {seat}).")
+        await update_lobby()
+
+        # اگه لیست رزرو خالی شد → پیام رزرو رو حذف کن
+        if not waiting_list and waiting_message_id:
+            try:
+                await bot.delete_message(group_chat_id, waiting_message_id)
+            except:
+                pass
+            waiting_message_id = None
 
 # ======================
 # بروزرسانی لابی
 # ======================
 async def update_lobby():
     global lobby_message_id
-    if not group_chat_id or not lobby_message_id:
+
+    if not group_chat_id:
         return
 
+    text = f"📋 <b>لیست بازی:</b>\n"
+    text += f"سناریو: {selected_scenario or 'انتخاب نشده'}\n\n"
 
-    # ساخت متن لابی
-    text = f"📋 **لیست بازی:**\n"
-    text += f"سناریو: {selected_scenario or 'انتخاب نشده'}\n"
-    text += f"گرداننده: {(await bot.get_chat_member(group_chat_id, moderator_id)).user.full_name if moderator_id else 'انتخاب نشده'}\n\n"
-
+    # 👤 گرداننده
     if moderator_id:
         try:
             moderator = await bot.get_chat_member(group_chat_id, moderator_id)
-            text += f"گرداننده: {html.escape(moderator.user.full_name)}\n\n"
-        except Exception:
-            text += "گرداننده: انتخاب نشده\n\n"
+            text += f"👤 گرداننده: {html.escape(moderator.user.full_name)}\n\n"
+        except:
+            text += "👤 گرداننده: انتخاب نشده\n\n"
     else:
-        text += "گرداننده: انتخاب نشده\n\n"
-        
+        text += "👤 گرداننده: انتخاب نشده\n\n"
+
+    # 👥 بازیکنان اصلی
     if players:
         for uid, name in players.items():
             seat = next((s for s, u in player_slots.items() if u == uid), None)
             seat_str = f" (صندلی {seat})" if seat else ""
             text += f"- <a href='tg://user?id={uid}'>{html.escape(name)}</a>{seat_str}\n"
     else:
-        text += "هیچ بازیکنی وارد بازی نشده است.\n"        
-
+        text += "هیچ بازیکنی وارد بازی نشده است.\n"
 
     kb = InlineKeyboardMarkup(row_width=5)
 
-    # ✅ دکمه‌های انتخاب صندلی
     if selected_scenario:
         max_players = len(scenarios[selected_scenario]["roles"])
+
+        # 🎯 دکمه‌های صندلی
         for i in range(1, max_players + 1):
             if i in player_slots:
                 player_name = players.get(player_slots[i], "❓")
@@ -2053,58 +2038,67 @@ async def update_lobby():
             else:
                 kb.insert(InlineKeyboardButton(str(i), callback_data=f"slot_{i}"))
 
-        # ✅ ورود/خروج یا غیرفعال کردن ورود
+        # 🎯 ورود/خروج یا غیرفعال شدن
         if len(player_slots) >= max_players:
             kb.row(InlineKeyboardButton("🚫 لیست پر شده", callback_data="full_list"))
-            await update_waiting_list_message()  # وقتی پر شد پیام رزرو بساز
+
+            # لیست رزرو
+            if waiting_list:
+                text += "\n\n📌 <b>لیست رزرو:</b>\n"
+                for w in waiting_list:
+                    text += f"- <a href='tg://user?id={w['id']}'>{html.escape(w['name'])}</a>\n"
+            else:
+                text += "\n\n📌 لیست رزرو خالی است."
+
+            kb.row(
+                InlineKeyboardButton("📝 رزرو", callback_data="join_waiting"),
+                InlineKeyboardButton("❌ کنسل", callback_data="leave_waiting"),
+            )
         else:
             kb.row(
                 InlineKeyboardButton("✅ ورود به بازی", callback_data="join_game"),
                 InlineKeyboardButton("❌ خروج از بازی", callback_data="leave_game"),
             )
 
+        # ✅ نمایش لیست رزرو
+    if waiting_list:
+        text += "\n\n📋 لیست رزرو:\n"
+        for i, w in enumerate(waiting_list, start=1):
+            text += f"{i}. {w['name']}\n"
 
-    # ✅ دکمه لغو بازی فقط برای مدیران
+        kb.row(
+            InlineKeyboardButton("🙋 رزرو", callback_data="join_waiting"),
+            InlineKeyboardButton("❌ کنسل", callback_data="leave_waiting"),
+        )
+
+
+        # 🎭 پخش نقش
+        if moderator_id:
+            min_players = scenarios[selected_scenario]["min_players"]
+            if min_players <= len(players) <= max_players:
+                kb.add(InlineKeyboardButton("🎭 پخش نقش", callback_data="distribute_roles"))
+            elif len(players) > max_players:
+                text += "\n⚠️ تعداد بازیکنان بیش از ظرفیت این سناریو است."
+
+    # 🚫 لغو بازی
     if moderator_id and moderator_id in admins:
         kb.add(InlineKeyboardButton("🚫 لغو بازی", callback_data="cancel_game"))
 
+    # 🔄 بروزرسانی پیام
     try:
-        await bot.edit_message_text(
-            text, chat_id=group_chat_id, message_id=lobby_message_id,
-            reply_markup=kb, parse_mode="HTML"
-        )
-    except:
+        if lobby_message_id:
+            await bot.edit_message_text(
+                text, chat_id=group_chat_id, message_id=lobby_message_id,
+                reply_markup=kb, parse_mode="HTML"
+            )
+        else:
+            msg = await bot.send_message(group_chat_id, text, reply_markup=kb, parse_mode="HTML")
+            lobby_message_id = msg.message_id
+    except Exception as e:
+        logging.warning(f"⚠️ خطا در بروزرسانی لابی: {e}")
         msg = await bot.send_message(group_chat_id, text, reply_markup=kb, parse_mode="HTML")
         lobby_message_id = msg.message_id
-        
 
-    # ✅ دکمه شروع بازی در صورت کافی بودن بازیکنان
-    if selected_scenario and moderator_id:
-        min_players = scenarios[selected_scenario]["min_players"]
-        max_players = len(scenarios[selected_scenario]["roles"])
-        if min_players <= len(players) <= max_players:
-            kb.add(InlineKeyboardButton("🎭 پخش نقش", callback_data="distribute_roles"))
-        elif len(players) > max_players:
-            text += "\n⚠️ تعداد بازیکنان بیش از ظرفیت این سناریو است."
-    
-
-    # 🔄 بروزرسانی پیام لابی
-    if lobby_message_id:
-        try:
-            await bot.edit_message_text(text, chat_id=group_chat_id, message_id=lobby_message_id, reply_markup=kb, parse_mode="HTML")
-        except Exception:
-            # اگر ویرایش نشد، یک پیام جدید ارسال شود
-            msg = await bot.send_message(group_chat_id, text, reply_markup=kb, parse_mode="HTML")
-            lobby_message_id = msg.message_id
-    else:
-        try:
-            msg = await bot.send_message(group_chat_id, text, reply_markup=kb, parse_mode="HTML")
-            lobby_message_id = msg.message_id
-
-        except Exception as e:
-            logging.exception("⚠️ Failed to edit lobby, sending new message")
-            msg = await bot.send_message(group_chat_id, text, reply_markup=kb, parse_mode="HTML")
-            lobby_message_id = msg.message_id
 
 # ======================================
 # ایجاد لیست رزرو
@@ -2161,25 +2155,46 @@ async def update_waiting_list_message():
         except Exception:
             return
 
+#==========================
+# ورود به رزرو
+#==========================
+@dp.callback_query_handler(lambda c: c.data == "join_waiting")
+async def join_waiting_handler(callback: types.CallbackQuery):
+    user = callback.from_user
+
+    # ✅ اگر داخل بازی هست → اجازه نداره بره رزرو
+    if user.id in players:
+        await callback.answer("❌ شما در لیست اصلی هستید و نمی‌توانید وارد رزرو شوید.", show_alert=True)
+        return
+
+    # ✅ اگر از قبل در رزرو هست → تکراری نره
+    if any(w["id"] == user.id for w in waiting_list):
+        await callback.answer("⚠️ شما قبلاً در لیست رزرو هستید.", show_alert=True)
+        return
+
+    # ✅ اضافه به رزرو
+    waiting_list.append({"id": user.id, "name": user.full_name})
+    await callback.answer("✅ شما به لیست رزرو اضافه شدید.", show_alert=True)
+
+    await update_lobby()
 
 # -------------------------
 # کنسل رزرو (دکمه)
 # -------------------------
-@dp.callback_query_handler(lambda c: c.data == "cancel_waiting")
-async def cancel_waiting(callback: types.CallbackQuery):
-    global waiting_list
+@dp.callback_query_handler(lambda c: c.data == "leave_waiting")
+async def leave_waiting_handler(callback: types.CallbackQuery):
+    user = callback.from_user
 
-    user_id = callback.from_user.id
+    # ✅ بررسی وجود در رزرو
     before = len(waiting_list)
-    waiting_list = [w for w in waiting_list if w.get("id") != user_id]
+    waiting_list[:] = [w for w in waiting_list if w["id"] != user.id]
 
     if len(waiting_list) < before:
-        await callback.answer("❌ رزرو شما لغو شد.")
-        # آپدیت پیام رزرو و لابی
-        await update_waiting_list_message()
-        await update_lobby()
+        await callback.answer("✅ شما از لیست رزرو خارج شدید.", show_alert=True)
     else:
         await callback.answer("⚠️ شما در لیست رزرو نبودید.", show_alert=True)
+
+    await update_lobby()
 # ======================
 # لغو بازی توسط مدیران
 # ======================
