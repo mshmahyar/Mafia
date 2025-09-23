@@ -12,6 +12,7 @@ from aiogram.utils.exceptions import ChatAdminRequired
 from aiogram.dispatcher import FSMContext
 from aiogram.dispatcher.filters.state import State, StatesGroup
 from aiogram.contrib.fsm_storage.memory import MemoryStorage
+from aiogram.utils.exceptions import MessageNotModified, MessageToEditNotFound, MessageCantBeEdited
 import jdatetime
 class ScenarioForm(StatesGroup):
     name = State()
@@ -1927,11 +1928,9 @@ async def moderator_selected(callback: types.CallbackQuery):
 # ======================
 @dp.callback_query_handler(lambda c: c.data == "join_game")
 async def join_game_callback(callback: types.CallbackQuery):
-    global players, waiting_list
+    global players, player_slots
 
     user = callback.from_user
-    user_id = user.id
-    print("✅ ورود به بازی کلیک شد!")
 
     # جلوگیری از ورود در حین بازی
     if game_running:
@@ -1939,25 +1938,39 @@ async def join_game_callback(callback: types.CallbackQuery):
         return
 
     # جلوگیری از ورود دوباره بازیکن
-    if user_id in players:
-        await callback.answer("❌ شما در لیست بازی هستید!", show_alert=True)
+    if user.id in players:
+        await callback.answer("⚠️ شما از قبل در لیست هستید.", show_alert=True)
         return
 
-    # اضافه به بازیکنان اصلی
-    players[user_id] = user.full_name
+    # ظرفیت سناریو
+    if not selected_scenario:
+        await callback.answer("⚠️ لطفاً اول سناریو انتخاب کنید.", show_alert=True)
+        return
 
-    # اگر کاربر در لیست رزرو بود، حذفش کن
-    waiting_list[:] = [w for w in waiting_list if w.get("id") != user_id]
-    await update_waiting_list_message()
+    max_players = len(scenarios[selected_scenario]["roles"])
+    if len(player_slots) >= max_players:
+        # اضافه به لیست رزرو
+        if not any(w["id"] == user.id for w in waiting_list):
+            waiting_list.append({"id": user.id, "name": user.full_name})
+            await callback.answer("✅ شما به لیست رزرو اضافه شدید.")
+        else:
+            await callback.answer("⚠️ شما در لیست رزرو هستید.", show_alert=True)
+    else:
+        # ثبت در لیست اصلی
+        players[user.id] = user.full_name
+        # پیدا کردن اولین صندلی خالی
+        for i in range(1, max_players + 1):
+            if i not in player_slots:
+                player_slots[i] = user.id
+                break
+        await callback.answer("✅ شما وارد بازی شدید.")
 
-    await callback.answer("✅ شما به بازی اضافه شدید!")
     await update_lobby()
 
 
 # ===============================
 # خروج از بازی
 #================================
-
 @dp.callback_query_handler(lambda c: c.data == "leave_game")
 async def leave_game_callback(callback: types.CallbackQuery):
     global players, player_slots, waiting_list, waiting_message_id
@@ -2044,8 +2057,11 @@ async def update_lobby():
 
         # 🎯 ورود/خروج یا غیرفعال شدن
         if len(player_slots) >= max_players:
-            kb.row(InlineKeyboardButton("🚫 لیست پر شده", callback_data="full_list"))
-
+            kb.row(
+                InlineKeyboardButton("🚫 لیست پر شده", callback_data="full_list"),
+                InlineKeyboardButton("❌ خروج از بازی", callback_data="leave_game"),
+            )    
+            
             # لیست رزرو
             if waiting_list:
                 text += "\n\n📌 <b>لیست رزرو:</b>\n"
@@ -2069,39 +2085,33 @@ async def update_lobby():
         text += "\n\n📋 لیست رزرو:\n"
         for i, w in enumerate(waiting_list, start=1):
             text += f"{i}. {w['name']}\n"
+            
+    # 🎭 پخش نقش
+    if selected_scenario and moderator_id:
+        min_players = scenarios[selected_scenario]["min_players"]
+        max_players = len(scenarios[selected_scenario]["roles"])
+        if min_players <= len(players) <= max_players:
+            kb.add(InlineKeyboardButton("🎭 پخش نقش", callback_data="distribute_roles"))
+         # 🎭 پخش نقش
 
-        kb.row(
-            InlineKeyboardButton("🙋 رزرو", callback_data="join_waiting"),
-            InlineKeyboardButton("❌ کنسل", callback_data="leave_waiting"),
-        )
-
-
-        # 🎭 پخش نقش
-        if moderator_id:
-            min_players = scenarios[selected_scenario]["min_players"]
-            if min_players <= len(players) <= max_players:
-                kb.add(InlineKeyboardButton("🎭 پخش نقش", callback_data="distribute_roles"))
-            elif len(players) > max_players:
-                text += "\n⚠️ تعداد بازیکنان بیش از ظرفیت این سناریو است."
 
     # 🚫 لغو بازی
     if moderator_id and moderator_id in admins:
         kb.add(InlineKeyboardButton("🚫 لغو بازی", callback_data="cancel_game"))
 
     # 🔄 بروزرسانی پیام
-    try:
-        if lobby_message_id:
-            await bot.edit_message_text(
-                text, chat_id=group_chat_id, message_id=lobby_message_id,
-                reply_markup=kb, parse_mode="HTML"
-            )
-        else:
-            msg = await bot.send_message(group_chat_id, text, reply_markup=kb, parse_mode="HTML")
-            lobby_message_id = msg.message_id
-    except Exception as e:
-        logging.warning(f"⚠️ خطا در بروزرسانی لابی: {e}")
-        msg = await bot.send_message(group_chat_id, text, reply_markup=kb, parse_mode="HTML")
-        lobby_message_id = msg.message_id
+try:
+    await bot.edit_message_text(
+        text, chat_id=group_chat_id, message_id=lobby_message_id,
+        reply_markup=kb, parse_mode="HTML"
+    )
+except (MessageNotModified, MessageCantBeEdited):
+    # متن تغییری نکرده یا قابل ویرایش نیست → کاری نکن
+    pass
+except MessageToEditNotFound:
+    # پیام پاک شده یا پیدا نشد → پیام جدید بساز
+    msg = await bot.send_message(group_chat_id, text, reply_markup=kb, parse_mode="HTML")
+    lobby_message_id = msg.message_id
 
 
 # ======================================
