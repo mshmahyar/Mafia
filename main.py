@@ -763,22 +763,36 @@ async def update_reserved_message(message):
 
     await message.edit_text(text, reply_markup=kb, parse_mode="HTML")
 
-# =========================
-# رزرو به لیست انتظار
-# =========================
+
+# -------------------------
+# اضافه شدن به لیست رزرو (دکمه)
+# -------------------------
 @dp.callback_query_handler(lambda c: c.data == "reserve_waiting")
 async def reserve_waiting(callback: types.CallbackQuery):
     global waiting_list
+
     user_id = callback.from_user.id
     user_name = callback.from_user.full_name
 
-    if not any(u["id"] == user_id for u in waiting_list):
-        waiting_list.append({"id": user_id, "name": user_name})
-        await callback.answer("✅ شما به لیست رزرو اضافه شدید")
-        await update_reserved_message(callback.message)
-    else:
-        await callback.answer("⚠️ شما قبلا در لیست رزرو هستید", show_alert=True)
+    # 1) اگر بازیکن در لیست اصلی است → اجازه نده
+    if user_id in players:
+        await callback.answer("⚠️ شما در حال حاضر در لیست اصلی بازی هستید و نمی‌توانید در لیست رزرو باشید.", show_alert=True)
+        return
 
+    # 2) جلوگیری از اضافه شدن تکراری
+    if any(w.get("id") == user_id for w in waiting_list):
+        await callback.answer("ℹ️ شما قبلاً در لیست رزرو هستید.", show_alert=True)
+        # اما اگر پیام لیست رزرو ناقص است، آن را آپدیت کن
+        await update_waiting_list_message()
+        return
+
+    # 3) ثبت با ساختار ثابت (dict)
+    waiting_list.append({"id": user_id, "name": user_name})
+
+    await callback.answer("✅ شما به لیست رزرو اضافه شدید.")
+    # به‌روزرسانی پیام لیست رزرو و لابی (در صورت نیاز)
+    await update_waiting_list_message()
+    await update_lobby()
 # =========================
 # کنسل رزرو
 # =========================
@@ -1909,7 +1923,10 @@ async def moderator_selected(callback: types.CallbackQuery):
 # ======================
 @dp.callback_query_handler(lambda c: c.data == "join_game")
 async def join_game_callback(callback: types.CallbackQuery):
+    global players, waiting_list
+
     user = callback.from_user
+    user_id = user.id
     print("✅ ورود به بازی کلیک شد!")
 
     # جلوگیری از ورود در حین بازی
@@ -1917,19 +1934,23 @@ async def join_game_callback(callback: types.CallbackQuery):
         await callback.answer("❌ بازی در جریان است. نمی‌توانید وارد شوید.", show_alert=True)
         return
 
-    # جلوگیری از ورود گرداننده
-    #if user.id == moderator_id:
-        #await callback.answer("❌ گرداننده نمی‌تواند وارد بازی شود.", show_alert=True)
-        #return
-
     # جلوگیری از ورود دوباره بازیکن
-    if user.id in players:
+    if user_id in players:
         await callback.answer("❌ شما در لیست بازی هستید!", show_alert=True)
         return
 
-    players[user.id] = user.full_name
+    # اضافه به بازیکنان اصلی
+    players[user_id] = user.full_name
+
+    # اگر کاربر در لیست رزرو بود، حذفش کن
+    waiting_list[:] = [w for w in waiting_list if w.get("id") != user_id]
+    await update_waiting_list_message()
+
     await callback.answer("✅ شما به بازی اضافه شدید!")
     await update_lobby()
+
+
+
 
 @dp.callback_query_handler(lambda c: c.data == "leave_game")
 async def leave_game_callback(callback: types.CallbackQuery):
@@ -2085,10 +2106,33 @@ async def update_lobby():
             msg = await bot.send_message(group_chat_id, text, reply_markup=kb, parse_mode="HTML")
             lobby_message_id = msg.message_id
 
-
+# ======================================
+# ایجاد لیست رزرو
+# ======================================
 async def update_waiting_list_message():
-    global waiting_message_id
-    text = "📢 لیست پر شد!\nاگر می‌خواید جایگزین شوید، روی دکمه رزرو بزنید.\nبرای خروج از لیست رزرو دکمه کنسل رو بزنید."
+    """
+    پیام لیست رزرو را ایجاد یا آپدیت می‌کند.
+    اگر لیست رزرو خالی شود، پیام حذف می‌شود.
+    """
+    global waiting_message_id, waiting_list, group_chat_id
+
+    # اگر لیست رزرو خالی است → پیام را پاک کن (اگه وجود دارد) و تمام
+    if not waiting_list:
+        if waiting_message_id:
+            try:
+                await bot.delete_message(group_chat_id, waiting_message_id)
+            except:
+                pass
+            waiting_message_id = None
+        return
+
+    # ساخت متن لیست رزرو
+    text = "📢 <b>لیست رزرو</b>\n\n"
+    for idx, item in enumerate(waiting_list, start=1):
+        name = item.get("name", "❓")
+        text += f"{idx}. {html.escape(name)}\n"
+
+    text += "\nاگر می‌خواید جایگزین شوید، روی «💺 رزرو» بزنید.\nبرای انصراف از رزرو «❌ کنسل»."
 
     kb = InlineKeyboardMarkup(row_width=2)
     kb.add(
@@ -2096,16 +2140,46 @@ async def update_waiting_list_message():
         InlineKeyboardButton("❌ کنسل", callback_data="cancel_waiting")
     )
 
+    # اگر قبلاً پیام وجود داشت → ویرایشش کن، در غیر این صورت ارسال جدید
     if waiting_message_id:
         try:
-            await bot.edit_message_text(text, chat_id=group_chat_id, message_id=waiting_message_id, reply_markup=kb)
-        except:
-            pass
+            await bot.edit_message_text(text, chat_id=group_chat_id, message_id=waiting_message_id,
+                                        parse_mode="HTML", reply_markup=kb)
+            return
+        except Exception:
+            # اگر ویرایش موفق نبود (مثلاً پیام پاک شده)، پیام جدید ارسال کن
+            try:
+                msg = await bot.send_message(group_chat_id, text, parse_mode="HTML", reply_markup=kb)
+                waiting_message_id = msg.message_id
+                return
+            except Exception:
+                return
     else:
-        msg = await bot.send_message(group_chat_id, text, reply_markup=kb)
-        waiting_message_id = msg.message_id
+        try:
+            msg = await bot.send_message(group_chat_id, text, parse_mode="HTML", reply_markup=kb)
+            waiting_message_id = msg.message_id
+        except Exception:
+            return
 
 
+# -------------------------
+# کنسل رزرو (دکمه)
+# -------------------------
+@dp.callback_query_handler(lambda c: c.data == "cancel_waiting")
+async def cancel_waiting(callback: types.CallbackQuery):
+    global waiting_list
+
+    user_id = callback.from_user.id
+    before = len(waiting_list)
+    waiting_list = [w for w in waiting_list if w.get("id") != user_id]
+
+    if len(waiting_list) < before:
+        await callback.answer("❌ رزرو شما لغو شد.")
+        # آپدیت پیام رزرو و لابی
+        await update_waiting_list_message()
+        await update_lobby()
+    else:
+        await callback.answer("⚠️ شما در لیست رزرو نبودید.", show_alert=True)
 # ======================
 # لغو بازی توسط مدیران
 # ======================
