@@ -32,7 +32,7 @@ bot = Bot(token=API_TOKEN, parse_mode="HTML")
 storage = MemoryStorage()
 dp = Dispatcher(bot)
 # فقط این گروه اجازه اجرای بازی داره
-ALLOWED_GROUP_ID = -1001760002160
+ALLOWED_GROUP_ID = -1002356353761
 
 
 # ======================
