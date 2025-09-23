@@ -2100,18 +2100,18 @@ async def update_lobby():
         kb.add(InlineKeyboardButton("🚫 لغو بازی", callback_data="cancel_game"))
 
     # 🔄 بروزرسانی پیام
-try:
-    await bot.edit_message_text(
-        text, chat_id=group_chat_id, message_id=lobby_message_id,
-        reply_markup=kb, parse_mode="HTML"
-    )
-except (MessageNotModified, MessageCantBeEdited):
-    # متن تغییری نکرده یا قابل ویرایش نیست → کاری نکن
-    pass
-except MessageToEditNotFound:
-    # پیام پاک شده یا پیدا نشد → پیام جدید بساز
-    msg = await bot.send_message(group_chat_id, text, reply_markup=kb, parse_mode="HTML")
-    lobby_message_id = msg.message_id
+    try:
+        await bot.edit_message_text(
+            text, chat_id=group_chat_id, message_id=lobby_message_id,
+            reply_markup=kb, parse_mode="HTML"
+        )
+    except (MessageNotModified, MessageCantBeEdited):
+        # متن تغییری نکرده یا قابل ویرایش نیست → کاری نکن
+        pass
+    except MessageToEditNotFound:
+        # پیام پاک شده یا پیدا نشد → پیام جدید بساز
+        msg = await bot.send_message(group_chat_id, text, reply_markup=kb, parse_mode="HTML")
+        lobby_message_id = msg.message_id
 
 
 # ======================================
