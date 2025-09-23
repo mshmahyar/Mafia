@@ -428,9 +428,7 @@ async def list_players_handler(callback: types.CallbackQuery):
 def main_menu_keyboard():
     kb = InlineKeyboardMarkup(row_width=1)
     kb.add(
-        InlineKeyboardButton("🎮 بازی جدید", callback_data="new_game"),
-        InlineKeyboardButton("📝 لیست جدید", callback_data="new_list"),
-    )
+        InlineKeyboardButton("🎮 بازی جدید", callback_data="new_game")
     return kb
 
 def game_menu_keyboard():
@@ -514,259 +512,6 @@ async def manage_game_handler(callback: types.CallbackQuery):
     )
     await callback.answer()
 
-# =======================
-# هندلر لیست جدید
-# =======================
-# تابع کمکی: بررسی ادمین بودن
-async def is_admin(user_id: int, chat_id: int, bot: Bot) -> bool:
-    member = await bot.get_chat_member(chat_id, user_id)
-    return member.is_chat_admin()
-
-@dp.callback_query_handler(lambda c: c.data == "new_list")
-async def new_list_handler(callback: types.CallbackQuery):
-    user_id = callback.from_user.id
-    chat_id = callback.message.chat.id
-
-    # بررسی ادمین یا گرداننده بودن
-    if not (await is_admin(user_id, chat_id, bot) or user_id == current_moderator_id):
-        await callback.answer("⛔ فقط مدیران یا گرداننده می‌تونن لیست جدید بسازن!", show_alert=True)
-        return
-
-    # اگر مجاز بود -> منوی تنظیمات لیست نشون داده بشه
-    kb = InlineKeyboardMarkup(row_width=1)
-    kb.add(InlineKeyboardButton("📜 سناریو", callback_data="list_choose_scenario"))
-    kb.add(InlineKeyboardButton("🙋‍♂️ گرداننده", callback_data="list_choose_god"))
-    kb.add(InlineKeyboardButton("📝 ایجاد لیست", callback_data="list_create"))
-
-    await callback.message.edit_text("⚙️ تنظیمات لیست:", reply_markup=kb)
-    await callback.answer()
-
-
-# =========================
-# انتخاب سناریو برای لیست رزروی
-# =========================
-@dp.callback_query_handler(lambda c: c.data == "list_choose_scenario")
-async def list_choose_scenario(callback: types.CallbackQuery):
-    kb = InlineKeyboardMarkup(row_width=1)
-    for scen in scenarios:   # از همون فایل سناریو می‌گیره
-        kb.add(InlineKeyboardButton(scen, callback_data=f"list_scenario_{scen}"))
-
-    await callback.message.edit_text("📜 یک سناریو برای لیست رزروی انتخاب کنید:", reply_markup=kb)
-
-
-@dp.callback_query_handler(lambda c: c.data.startswith("list_scenario_"))
-async def list_set_scenario(callback: types.CallbackQuery):
-    global reserved_scenario
-    reserved_scenario = callback.data.split("list_scenario_")[1]
-    await callback.answer("✅ سناریو برای لیست رزروی انتخاب شد")
-
-    # بازگشت به منوی تنظیمات
-    kb = InlineKeyboardMarkup(row_width=1)
-    kb.add(InlineKeyboardButton("📜 سناریو", callback_data="list_choose_scenario"))
-    kb.add(InlineKeyboardButton("🙋‍♂️ گرداننده", callback_data="list_choose_god"))
-    kb.add(InlineKeyboardButton("📝 ایجاد لیست", callback_data="list_create"))
-
-    await callback.message.edit_text(
-        f"📜 سناریوی انتخابی برای لیست رزروی:\n<b>{reserved_scenario}</b>\n\n⚙️ تنظیمات لیست:",
-        reply_markup=kb,
-        parse_mode="HTML"
-    )
-
-
-# -----------------------------
-# انتخاب گرداننده از بین ادمین‌ها
-# -----------------------------
-@dp.callback_query_handler(lambda c: c.data == "list_choose_god")
-async def list_choose_god(callback: types.CallbackQuery):
-    chat_id = callback.message.chat.id
-    admins = await bot.get_chat_administrators(chat_id)
-
-    if not admins:
-        await callback.answer("⚠️ هیچ مدیری یافت نشد", show_alert=True)
-        return
-
-    kb = InlineKeyboardMarkup(row_width=2)
-    for admin in admins:
-        user = admin.user
-        name = user.full_name
-        kb.add(InlineKeyboardButton(name, callback_data=f"list_god_{user.id}"))
-
-    await callback.message.edit_text(
-        "👤 یک مدیر را به عنوان گرداننده لیست رزروی انتخاب کنید:",
-        reply_markup=kb
-    )
-
-
-
-
-@dp.callback_query_handler(lambda c: c.data.startswith("list_god_"))
-async def list_set_god(callback: types.CallbackQuery, state: FSMContext):
-    global reserved_god
-
-    god_id = int(callback.data.split("list_god_")[1])
-    chat_id = callback.message.chat.id
-
-    # پیدا کردن اسم گرداننده از بین ادمین‌ها
-    admins = await bot.get_chat_administrators(chat_id)
-    god_name = None
-    for admin in admins:
-        if admin.user.id == god_id:
-            god_name = admin.user.full_name
-            break
-
-    if not god_name:
-        await callback.answer("⚠️ گرداننده نامعتبر است.", show_alert=True)
-        return
-
-    reserved_god = {"id": god_id, "name": god_name}
-    await callback.answer("✅ گرداننده برای لیست رزروی انتخاب شد")
-
-    # بستن استیت (اگر فعال بود)
-    if state:
-        await state.finish()
-
-    # بازگشت به منوی تنظیمات
-    kb = InlineKeyboardMarkup(row_width=1)
-    kb.add(InlineKeyboardButton("📜 سناریو", callback_data="list_choose_scenario"))
-    kb.add(InlineKeyboardButton("🙋‍♂️ گرداننده", callback_data="list_choose_god"))
-    kb.add(InlineKeyboardButton("📝 ایجاد لیست", callback_data="list_create"))
-
-    await callback.message.edit_text(
-        f"👤 گرداننده لیست رزروی:\n<b>{god_name}</b>\n\n⚙️ تنظیمات لیست:",
-        reply_markup=kb,
-        parse_mode="HTML"
-    )
-# =========================
-# ساخت لیست رزروی
-# =========================
-@dp.callback_query_handler(lambda c: c.data == "list_create")
-async def create_reserved_list(callback: types.CallbackQuery):
-    global reserved_list
-
-    if not reserved_scenario:
-        await callback.answer("⚠️ لطفا اول سناریو را انتخاب کنید", show_alert=True)
-        return
-    if not reserved_god:
-        await callback.answer("⚠️ لطفا اول گرداننده را انتخاب کنید", show_alert=True)
-        return
-
-    # تعداد صندلی‌ها بر اساس تعداد نقش‌ها
-    seats_count = len(scenarios[reserved_scenario]["roles"])
-    reserved_list = [{"seat": i, "player": None} for i in range(1, seats_count + 1)]
-
-    # تاریخ شمسی امروز
-    today_date = get_jalali_today()
-
-    # متن اولیه
-    text = (
-        "༄\n\n"
-        "Mafia Nights\n\n"
-        f"Time : 21:00\n"
-        f"Date : {today_date}\n"
-        f"Scenario : {reserved_scenario}\n"
-        f"God : {reserved_god['name']}\n\n"
-        "◤◢◣◥◤◢◣◥◤◢◣◥◤◢\n\n"
-    )
-
-    for item in reserved_list:
-        text += f"{item['seat']:02d} --- خالی\n"
-
-    text += "\n◤◢◣◥◤◢◣◥◤◢◣◥◤◢\n\n༄"
-
-    # دکمه‌ها در سه ردیف
-    kb = InlineKeyboardMarkup(row_width=3)
-    row_buttons = []
-    for idx, item in enumerate(reserved_list, start=1):
-        row_buttons.append(InlineKeyboardButton(f"{item['seat']:02d}", callback_data=f"reserve_seat_{item['seat']}"))
-        if idx % 3 == 0:
-            kb.row(*row_buttons)
-            row_buttons = []
-    if row_buttons:
-        kb.row(*row_buttons)
-
-    await callback.message.edit_text(text, reply_markup=kb, parse_mode="HTML")
-
-# =========================
-# رزرو صندلی
-# =========================
-@dp.callback_query_handler(lambda c: c.data.startswith("reserve_seat_"))
-async def reserve_seat(callback: types.CallbackQuery):
-    global reserved_list, waiting_list
-
-    seat_num = int(callback.data.split("reserve_seat_")[1])
-    user_id = callback.from_user.id
-    user_name = callback.from_user.full_name
-
-    seat_info = next((s for s in reserved_list if s["seat"] == seat_num), None)
-    if not seat_info:
-        await callback.answer("⚠️ صندلی نامعتبر است", show_alert=True)
-        return
-
-    # بررسی رزرو قبلی کاربر
-    already_reserved = next((s for s in reserved_list if s["player"] and s["player"]["id"] == user_id), None)
-
-    if seat_info["player"] is None and not already_reserved:
-        seat_info["player"] = {"id": user_id, "name": user_name}
-        await callback.answer("✅ صندلی برای شما رزرو شد")
-    elif seat_info["player"] and seat_info["player"]["id"] == user_id:
-        seat_info["player"] = None
-        await callback.answer("❌ رزرو شما لغو شد")
-    else:
-        await callback.answer("⚠️ صندلی پر است یا شما قبلا صندلی دارید", show_alert=True)
-        return
-
-    await update_reserved_message(callback.message)
-
-# =========================
-# بروزرسانی متن و دکمه‌ها
-# =========================
-async def update_reserved_message(message):
-    global reserved_list, waiting_list
-
-    today_date = get_jalali_today()
-    text = (
-        "༄\n\n"
-        "Mafia Nights\n\n"
-        f"Time : 21:00\n"
-        f"Date : {today_date}\n"
-        f"Scenario : {reserved_scenario}\n"
-        f"God : {reserved_god['name']}\n\n"
-        "◤◢◣◥◤◢◣◥◤◢◣◥◤◢\n\n"
-    )
-
-    for item in reserved_list:
-        if item["player"]:
-            text += f"{item['seat']:02d} {item['player']['name']}\n"
-        else:
-            text += f"{item['seat']:02d} --- خالی\n"
-
-    if all(s["player"] for s in reserved_list):
-        text += "\n📢 لیست پر شد! اگر می‌خواید جایگزین شوید، روی دکمه رزرو بزنید.\n"
-        if waiting_list:
-            text += "💺 لیست رزرو:\n"
-            for idx, user in enumerate(waiting_list, start=1):
-                text += f"{idx}. {user['name']}\n"
-
-    text += "\n◤◢◣◥◤◢◣◥◤◢◣◥◤◢\n\n༄"
-
-    # دکمه‌ها
-    kb = InlineKeyboardMarkup(row_width=3)
-    if all(s["player"] for s in reserved_list):
-        kb = InlineKeyboardMarkup(row_width=1)
-        kb.add(InlineKeyboardButton("❌ کنسل", callback_data="cancel_seat"))
-        kb.add(InlineKeyboardButton("💺 رزرو", callback_data="reserve_waiting"))
-    else:
-        row_buttons = []
-        for idx, item in enumerate(reserved_list, start=1):
-            label = f"{item['seat']:02d} ✅" if item["player"] else f"{item['seat']:02d}"
-            row_buttons.append(InlineKeyboardButton(label, callback_data=f"reserve_seat_{item['seat']}"))
-            if idx % 3 == 0:
-                kb.row(*row_buttons)
-                row_buttons = []
-        if row_buttons:
-            kb.row(*row_buttons)
-
-    await message.edit_text(text, reply_markup=kb, parse_mode="HTML")
 
 
 # -------------------------
@@ -2734,22 +2479,22 @@ async def start_turn(seat, duration=DEFAULT_TURN_DURATION, is_challenge=False):
     challenge_mode = bool(is_challenge)
 
     # unpin پیام قبلی اگر لازم
-    if current_turn_message_id:
-        try:
-            await bot.unpin_chat_message(group_chat_id, current_turn_message_id)
-        except:
-            pass
+    #if current_turn_message_id:
+        #try:
+            #await bot.unpin_chat_message(group_chat_id, current_turn_message_id)
+        #except:
+            #pass
 
     text = f"⏳ {duration//60:02d}:{duration%60:02d}\n🎙 نوبت صحبت {mention} است. ({duration} ثانیه)"
     msg = await bot.send_message(group_chat_id, text, parse_mode="HTML", reply_markup=turn_keyboard(seat, is_challenge))
 
     # تلاش برای پین کردن پیام جدید (اختیاری)
-    try:
-        await bot.pin_chat_message(group_chat_id, msg.message_id, disable_notification=True)
-    except:
-        pass
+    #try:
+        #await bot.pin_chat_message(group_chat_id, msg.message_id, disable_notification=True)
+    #except:
+        #pass
 
-    current_turn_message_id = msg.message_id
+    #current_turn_message_id = msg.message_id
 
     # لغو تایمر قبلی
     if turn_timer_task and not turn_timer_task.done():
