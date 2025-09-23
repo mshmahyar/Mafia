@@ -428,7 +428,8 @@ async def list_players_handler(callback: types.CallbackQuery):
 def main_menu_keyboard():
     kb = InlineKeyboardMarkup(row_width=1)
     kb.add(
-        InlineKeyboardButton("🎮 بازی جدید", callback_data="new_game")
+        InlineKeyboardButton("🎮 بازی جدید", callback_data="new_game"),
+        (
     return kb
 
 def game_menu_keyboard():
