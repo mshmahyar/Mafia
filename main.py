@@ -637,23 +637,25 @@ async def show_roles_list(user_id: int):
 #=======================
 @dp.callback_query_handler(lambda c: c.data == "resend_roles")
 async def resend_roles_handler(callback: types.CallbackQuery):
+    global last_role_map
+
     if callback.message.chat.type != "private":
         await callback.answer()
         return
 
     if not group_chat_id or not game_running:
-        await callback.message.answer("🚫 هیچ بازی فعالی وجود ندارد.")
+        await callback.message.answer("🚫 هنوز هیچ بازی فعالی وجود ندارد.")
         await callback.answer()
         return
 
-    global last_role_map
+    # بررسی نقش‌ها
     if not last_role_map:
-        await callback.message.answer("⚠️ نقش‌ها هنوز پخش نشده‌اند؛ ابتدا «پخش نقش» در گروه را بزنید.")
+        await callback.message.answer("⚠️ نقش‌ها هنوز پخش نشده‌اند؛ ابتدا «پخش نقش» را در گروه بزنید.")
         await callback.answer()
         return
 
     sent = 0
-    # ✅ بازپخش نقش‌ها به بازیکنان
+    # ارسال دوباره نقش به بازیکنان
     if player_slots:
         for seat in sorted(player_slots.keys()):
             uid = player_slots[seat]
@@ -673,47 +675,44 @@ async def resend_roles_handler(callback: types.CallbackQuery):
                 logging.warning("⚠️ ارسال نقش به %s خطا: %s", uid, e)
 
     if sent == 0:
-        await callback.message.answer("⚠️ هیچ پیامی ارسال نشد (شاید بازیکنانی پیویشان بسته است).")
+        await callback.message.answer("⚠️ هیچ پیامی ارسال نشد (شاید بازیکن‌ها پیویشان بسته است).")
         await callback.answer()
         return
 
-    # ✅ حالا لیست کامل برای گرداننده
-    from persiantools.jdatetime import JalaliDate
-    today_str = JalaliDate.today().strftime("%Y/%m/%d")
-
-    scenario_name = selected_scenario or "—"
-    god_name = players.get(moderator_id, "—")
+    # ساخت لیست برای گرداننده
+    today_date = get_jalali_today() if "get_jalali_today" in globals() else "----/--/--"
+    scenario_name = selected_scenario or "نامشخص"
+    god_name = players.get(moderator_id, "❓")
 
     text = (
         "༄\n"
         "    Mafia Nights\n\n"
         f"⏱ Time : 21:00\n"
-        f"📆 Date : {today_str}\n"
-        f"🗓 Scenario : {scenario_name}\n"
-        f"👮‍♂ God : {god_name}\n\n"
+        f"📆 Date : {today_date}\n"
+        f"🗓 Scenario : {html.escape(scenario_name)}\n"
+        f"👮‍♂ God : {html.escape(god_name)}\n\n"
         " ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ \n"
-        "         لیست نقش‌ها\n"
-        "◤◢◣◥◤◢◣◥◤◢◣◥\n\n"
+        "          لیست نقش‌ها\n"
+        "◤◢◣◥◤◢◣◥◤◢◣◥◤◢◣◥\n\n"
     )
 
-    if player_slots:
-        for seat in sorted(player_slots.keys()):
-            uid = player_slots[seat]
-            role = last_role_map.get(uid, "❓")
-            name = players.get(uid, "❓")
-            mention = f"<a href='tg://user?id={uid}'>{html.escape(name)}</a>"
-            text += f"{seat:02d} {mention} — <b>{html.escape(str(role))}</b>\n"
-    else:
-        for i, uid in enumerate(players.keys(), start=1):
-            role = last_role_map.get(uid, "❓")
-            name = players.get(uid, "❓")
-            mention = f"<a href='tg://user?id={uid}'>{html.escape(name)}</a>"
-            text += f"{i:02d} {mention} — <b>{html.escape(str(role))}</b>\n"
+    for seat in sorted(player_slots.keys()):
+        uid = player_slots[seat]
+        role = last_role_map.get(uid, "❓")
+        name = players.get(uid, "❓")
+        mention = f"<a href='tg://user?id={uid}'><b>{html.escape(name)}</b></a>"
+        text += f"{seat:02d} {mention} — {html.escape(role)}\n"
 
-    text += "\n◤◢◣◥◤◢◣◥◤◢◣◥\n\n༄"
+    text += "\n◤◢◣◥◤◢◣◥◤◢◣◥◤◢◣◥\n\n༄"
 
-    await callback.message.answer(text, parse_mode="HTML")
-    await callback.answer(f"✅ نقش‌ها دوباره به {sent} بازیکن ارسال شدند.")
+    # ارسال به گرداننده
+    try:
+        await bot.send_message(moderator_id, text, parse_mode="HTML")
+    except Exception as e:
+        logging.warning("⚠️ ارسال لیست نقش‌ها به گرداننده خطا: %s", e)
+
+    await callback.answer(f"✅ نقش‌ها به {sent} بازیکن ارسال شدند.")
+
 
 # -----------------------------
 # جایگزینی بازیکن - نمایش لیست جایگزین‌ها
