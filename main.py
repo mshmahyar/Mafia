@@ -1088,7 +1088,7 @@ async def back_main(callback: types.CallbackQuery):
 #======================
 @dp.callback_query_handler(lambda c: c.data == "distribute_roles")
 async def distribute_roles_callback(callback: types.CallbackQuery):
-    global game_message_id, lobby_message_id, game_running
+    global game_message_id, lobby_message_id, game_running, group_chat_id, last_role_map
 
     # فقط گرداننده اجازه دارد
     if callback.from_user.id != moderator_id:
@@ -1101,17 +1101,18 @@ async def distribute_roles_callback(callback: types.CallbackQuery):
 
     try:
         mapping = await distribute_roles()
-        # بعد از تولید نقش‌ها، نگهداریش توی متغیر سراسری
-        global last_role_map
         last_role_map = mapping
-    
     except Exception as e:
         logging.exception("⚠️ مشکل در پخش نقش‌ها: %s", e)
         await callback.answer("❌ خطا در پخش نقش‌ها.", show_alert=True)
         return
 
-    # 🎭 ارسال لیست بازیکنان و نقش‌ها به گرداننده در پیوی
-    await show_roles_list(moderator_id)
+    # نمایش لیست بازیکنان در گروه
+    seats = {seat: (uid, players.get(uid, "❓")) for seat, uid in player_slots.items()}
+    players_list = "\n".join([
+        f"{seat:02d}. <a href='tg://user?id={uid}'>{html.escape(name)}</a>"
+        for seat, (uid, name) in sorted(seats.items())
+    ])
 
     text = (
         "🎭 نقش‌ها پخش شد!\n\n"
@@ -1120,20 +1121,21 @@ async def distribute_roles_callback(callback: types.CallbackQuery):
         "👑 گرداننده سر صحبت را انتخاب کند تا بازی شروع شود."
     )
 
+    # ساخت کیبورد مدیریت دور
     kb = InlineKeyboardMarkup(row_width=1)
     kb.add(InlineKeyboardButton("👑 انتخاب سر صحبت", callback_data="choose_head"))
     kb.add(InlineKeyboardButton("▶ شروع دور", callback_data="start_round"))
-    
-    if challenge_active:
-        kb.add(InlineKeyboardButton("⚔ چالش روشن", callback_data="challenge_toggle"))
-    else:
-        kb.add(InlineKeyboardButton("⚔ چالش خاموش", callback_data="challenge_toggle"))
+    kb.add(InlineKeyboardButton("⚔ چالش روشن" if challenge_active else "⚔ چالش خاموش",
+                                callback_data="challenge_toggle"))
 
+    # ویرایش یا ارسال پیام بازی
     try:
         if lobby_message_id:
-            msg = await bot.edit_message_text(text, chat_id=group_chat_id, message_id=lobby_message_id, parse_mode="HTML", reply_markup=kb)
+            msg = await bot.edit_message_text(
+                text, chat_id=group_chat_id, message_id=lobby_message_id,
+                parse_mode="HTML", reply_markup=kb
+            )
             game_message_id = msg.message_id
-            # اگر می‌خواهی بعد از پخش نقش پیام لابی را نداشته باشی می‌توانی lobby_message_id = None کنی
         else:
             msg = await bot.send_message(group_chat_id, text, parse_mode="HTML", reply_markup=kb)
             game_message_id = msg.message_id
@@ -1144,6 +1146,7 @@ async def distribute_roles_callback(callback: types.CallbackQuery):
 
     game_running = True
     await callback.answer("✅ نقش‌ها پخش شد!")
+
 
 
 
