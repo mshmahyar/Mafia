@@ -692,7 +692,7 @@ async def resend_roles_handler(callback: types.CallbackQuery):
         f"🗓 Scenario : {html.escape(scenario_name)}\n"
         f"👮‍♂ God : {html.escape(god_name)}\n\n"
         " ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ \n"
-        "          لیست نقش‌ها\n"
+        "      لیست نقش‌ها\n"
         "◤◢◣◥◤◢◣◥◤◢◣◥◤◢◣◥\n\n"
     )
 
