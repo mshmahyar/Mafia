@@ -637,64 +637,57 @@ async def show_roles_list(user_id: int):
 #=======================
 @dp.callback_query_handler(lambda c: c.data == "resend_roles")
 async def resend_roles_handler(callback: types.CallbackQuery):
-    global last_role_map
-
     if callback.message.chat.type != "private":
         await callback.answer()
         return
 
-    if not group_chat_id or not game_running:
+    if not group_chat_id:
         await callback.message.answer("🚫 هنوز هیچ بازی فعالی وجود ندارد.")
         await callback.answer()
         return
 
-    # بررسی نقش‌ها
+    # بررسی وجود نقش‌های قبلی
+    global last_role_map
     if not last_role_map:
-        await callback.message.answer("⚠️ نقش‌ها هنوز پخش نشده‌اند؛ ابتدا «پخش نقش» را در گروه بزنید.")
+        await callback.message.answer("⚠️ نقش‌ها هنوز پخش نشده‌اند؛ ابتدا «پخش نقش» در گروه را بزنید.")
         await callback.answer()
         return
 
+    # ارسال نقش به هر بازیکن
     sent = 0
-    # ارسال دوباره نقش به بازیکنان
     if player_slots:
         for seat in sorted(player_slots.keys()):
             uid = player_slots[seat]
             role = last_role_map.get(uid, "❓")
             try:
-                await bot.send_message(uid, f"🎭 نقش شما: <b>{html.escape(str(role))}</b>", parse_mode="HTML")
+                await bot.send_message(uid, f"🎭 نقش شما: {html.escape(str(role))}")
                 sent += 1
             except Exception as e:
                 logging.warning("⚠️ ارسال نقش به %s خطا: %s", uid, e)
     else:
+        # fallback
         for uid in players.keys():
             role = last_role_map.get(uid, "❓")
             try:
-                await bot.send_message(uid, f"🎭 نقش شما: <b>{html.escape(str(role))}</b>", parse_mode="HTML")
+                await bot.send_message(uid, f"🎭 نقش شما: {html.escape(str(role))}")
                 sent += 1
             except Exception as e:
                 logging.warning("⚠️ ارسال نقش به %s خطا: %s", uid, e)
 
     if sent == 0:
-        await callback.message.answer("⚠️ هیچ پیامی ارسال نشد (شاید بازیکن‌ها پیویشان بسته است).")
+        await callback.message.answer("⚠️ هیچ پیامی ارسال نشد (شاید بازیکنانی پیویشان بسته است).")
         await callback.answer()
         return
 
-    # ساخت لیست برای گرداننده
-    today_date = get_jalali_today() if "get_jalali_today" in globals() else "----/--/--"
-    scenario_name = selected_scenario or "نامشخص"
-    god_name = players.get(moderator_id, "❓")
-
-    text = (
-        "༄\n"
-        "    Mafia Nights\n\n"
-        f"⏱ Time : 21:00\n"
-        f"📆 Date : {today_date}\n"
-        f"🗓 Scenario : {html.escape(scenario_name)}\n"
-        f"👮‍♂ God : {html.escape(god_name)}\n\n"
-        " ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ \n"
-        "      لیست نقش‌ها\n"
-        "◤◢◣◥◤◢◣◥◤◢◣◥◤◢◣◥\n\n"
-    )
+    # 📜 ساخت متن لیست نقش‌ها برای گرداننده
+    fancy_text = "༄\n    Mafia Nights\n\n"
+    fancy_text += "⏱ Time : 21:00\n"
+    fancy_text += f"📆 Date : {get_jalali_today()}\n"
+    fancy_text += f"🗓 Scenario : {selected_scenario}\n"
+    fancy_text += f"👮‍♂ God : {players.get(moderator_id, '❓')}\n\n"
+    fancy_text += " ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ \n"
+    fancy_text += "          لیست نقش‌ها\n"
+    fancy_text += "◤◢◣◥◤◢◣◥◤◢◣◥\n\n"
 
     for seat in sorted(player_slots.keys()):
         uid = player_slots[seat]
@@ -703,15 +696,16 @@ async def resend_roles_handler(callback: types.CallbackQuery):
         mention = f"<a href='tg://user?id={uid}'><b>{html.escape(name)}</b></a>"
         fancy_text += f"\u200E{seat:02d} {mention} — {html.escape(role)}\n"
 
-    text += "\n◤◢◣◥◤◢◣◥◤◢◣◥◤◢◣◥\n\n༄"
+    fancy_text += "\n◤◢◣◥◤◢◣◥◤◢◣◥\n\n༄"
 
-    # ارسال به گرداننده
+    # ارسال لیست به گرداننده
     try:
-        await bot.send_message(moderator_id, text, parse_mode="HTML")
+        await bot.send_message(moderator_id, fancy_text, parse_mode="HTML")
     except Exception as e:
-        logging.warning("⚠️ ارسال لیست نقش‌ها به گرداننده خطا: %s", e)
+        logging.warning("⚠️ ارسال لیست نقش‌ها به گرداننده شکست خورد: %s", e)
 
     await callback.answer(f"✅ نقش‌ها به {sent} بازیکن ارسال شدند.")
+
 
 
 # -----------------------------
