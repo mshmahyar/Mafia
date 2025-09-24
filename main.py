@@ -701,7 +701,7 @@ async def resend_roles_handler(callback: types.CallbackQuery):
         role = last_role_map.get(uid, "❓")
         name = players.get(uid, "❓")
         mention = f"<a href='tg://user?id={uid}'><b>{html.escape(name)}</b></a>"
-        text += f"{seat:02d} {mention} — {html.escape(role)}\n"
+        fancy_text += f"\u200E{seat:02d} {mention} — {html.escape(role)}\n"
 
     text += "\n◤◢◣◥◤◢◣◥◤◢◣◥◤◢◣◥\n\n༄"
 
