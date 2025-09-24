@@ -586,6 +586,52 @@ async def list_players_handler(callback: types.CallbackQuery):
     await callback.message.answer(text, parse_mode="HTML")
     await callback.answer()
 
+# ===================================
+# لیست بازیکنان و نقش ها
+# ===================================
+async def show_roles_list(user_id: int):
+    """
+    ارسال لیست نقش‌ها و بازیکنان برای گرداننده در پیوی
+    """
+    if not selected_scenario:
+        return
+
+    # 📆 تاریخ روز شمسی
+    today = JalaliDate.today().strftime("%Y/%m/%d")
+
+    max_players = len(scenarios[selected_scenario]["roles"])
+    current_players = len(players)
+
+    # 📝 هدر لیست
+    text = (
+        "༄\n"
+        "    Mafia Nights\n\n"
+        f"⏱ Time : 21:00\n"
+        f"📆 Date : {today}\n"
+        f"🗓 Scenario : {selected_scenario}\n"
+        f"👮‍♂ God : {players.get(moderator_id, '---')}\n\n"
+        f"👥 Players : {current_players}/{max_players}\n\n"
+        " ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ \n"
+        "        لیست بازیکنان\n"
+        "◤◢◣◥◤◢◣◥◤◢◣◥\n\n"
+    )
+
+    # 📋 لیست بازیکنان بر اساس شماره صندلی
+    for seat in sorted(player_slots.keys()):
+        uid = player_slots[seat]
+        name = players.get(uid, "❓")
+        mention = f"<b><a href='tg://user?id={uid}'>{html.escape(name)}</a></b>"
+        text += f"{seat:02d} {mention}\n"
+
+    text += "\n◤◢◣◥◤◢◣◥◤◢◣◥\n\n༄"
+
+    # 📤 ارسال پیام به پیوی گرداننده
+    try:
+        await bot.send_message(user_id, text, parse_mode="HTML")
+    except Exception as e:
+        logging.exception("⚠️ خطا در ارسال لیست نقش‌ها به گرداننده")
+
+
 #=======================
 # ارسال نقش ها
 #=======================
@@ -595,64 +641,79 @@ async def resend_roles_handler(callback: types.CallbackQuery):
         await callback.answer()
         return
 
-    if not group_chat_id:
-        await callback.message.answer("🚫 هنوز هیچ بازی فعالی وجود ندارد.")
+    if not group_chat_id or not game_running:
+        await callback.message.answer("🚫 هیچ بازی فعالی وجود ندارد.")
         await callback.answer()
         return
 
-    # بررسی وجود نقش‌های قبلی
     global last_role_map
     if not last_role_map:
         await callback.message.answer("⚠️ نقش‌ها هنوز پخش نشده‌اند؛ ابتدا «پخش نقش» در گروه را بزنید.")
         await callback.answer()
         return
 
-    # ارسال نقش به هر بازیکن بر اساس player_slots یا players
-    # اول تلاش می‌کنیم بر اساس player_slots (صندلی‌ها)
     sent = 0
+    # ✅ بازپخش نقش‌ها به بازیکنان
     if player_slots:
         for seat in sorted(player_slots.keys()):
             uid = player_slots[seat]
             role = last_role_map.get(uid, "❓")
             try:
-                await bot.send_message(uid, f"🎭 نقش شما: {html.escape(str(role))}")
+                await bot.send_message(uid, f"🎭 نقش شما: <b>{html.escape(str(role))}</b>", parse_mode="HTML")
                 sent += 1
             except Exception as e:
                 logging.warning("⚠️ ارسال نقش به %s خطا: %s", uid, e)
     else:
-        # fallback: اگر player_slots خالیست، از players (دیکشنری user_id->name) استفاده کن
-        if isinstance(players, dict):
-            for uid in players.keys():
-                role = last_role_map.get(uid, "❓")
-                try:
-                    await bot.send_message(uid, f"🎭 نقش شما: {html.escape(str(role))}")
-                    sent += 1
-                except Exception as e:
-                    logging.warning("⚠️ ارسال نقش به %s خطا: %s", uid, e)
+        for uid in players.keys():
+            role = last_role_map.get(uid, "❓")
+            try:
+                await bot.send_message(uid, f"🎭 نقش شما: <b>{html.escape(str(role))}</b>", parse_mode="HTML")
+                sent += 1
+            except Exception as e:
+                logging.warning("⚠️ ارسال نقش به %s خطا: %s", uid, e)
 
-    # ارسال لیست نقش‌ها برای گرداننده (پیام خلاصه)
     if sent == 0:
         await callback.message.answer("⚠️ هیچ پیامی ارسال نشد (شاید بازیکنانی پیویشان بسته است).")
         await callback.answer()
         return
 
-    # ساخت متن خلاصه (بر اساس player_slotsِ فعلی)
-    text = "📜 لیست نقش‌ها:\n"
+    # ✅ حالا لیست کامل برای گرداننده
+    from persiantools.jdatetime import JalaliDate
+    today_str = JalaliDate.today().strftime("%Y/%m/%d")
+
+    scenario_name = selected_scenario or "—"
+    god_name = players.get(moderator_id, "—")
+
+    text = (
+        "༄\n"
+        "    Mafia Nights\n\n"
+        f"⏱ Time : 21:00\n"
+        f"📆 Date : {today_str}\n"
+        f"🗓 Scenario : {scenario_name}\n"
+        f"👮‍♂ God : {god_name}\n\n"
+        " ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ \n"
+        "         لیست نقش‌ها\n"
+        "◤◢◣◥◤◢◣◥◤◢◣◥\n\n"
+    )
+
     if player_slots:
         for seat in sorted(player_slots.keys()):
             uid = player_slots[seat]
             role = last_role_map.get(uid, "❓")
             name = players.get(uid, "❓")
-            text += f"{seat}. <a href='tg://user?id={uid}'>{html.escape(name)}</a> — {html.escape(str(role))}\n"
+            mention = f"<a href='tg://user?id={uid}'>{html.escape(name)}</a>"
+            text += f"{seat:02d} {mention} — <b>{html.escape(str(role))}</b>\n"
     else:
-        # fallback
         for i, uid in enumerate(players.keys(), start=1):
             role = last_role_map.get(uid, "❓")
             name = players.get(uid, "❓")
-            text += f"{i}. <a href='tg://user?id={uid}'>{html.escape(name)}</a> — {html.escape(str(role))}\n"
+            mention = f"<a href='tg://user?id={uid}'>{html.escape(name)}</a>"
+            text += f"{i:02d} {mention} — <b>{html.escape(str(role))}</b>\n"
+
+    text += "\n◤◢◣◥◤◢◣◥◤◢◣◥\n\n༄"
 
     await callback.message.answer(text, parse_mode="HTML")
-    await callback.answer(f"✅ نقش‌ها به {sent} بازیکن ارسال شدند.")
+    await callback.answer(f"✅ نقش‌ها دوباره به {sent} بازیکن ارسال شدند.")
 
 # -----------------------------
 # جایگزینی بازیکن - نمایش لیست جایگزین‌ها
@@ -1049,9 +1110,8 @@ async def distribute_roles_callback(callback: types.CallbackQuery):
         await callback.answer("❌ خطا در پخش نقش‌ها.", show_alert=True)
         return
 
-    # نمایش خلاصه در گروه و تبديل پیام لابی به پیام بازی (game_message_id)
-    seats = {seat: (uid, players.get(uid, "❓")) for seat, uid in player_slots.items()}
-    players_list = "\n".join([f"{seat}. <a href='tg://user?id={uid}'>{html.escape(name)}</a>" for seat, (uid, name) in sorted(seats.items())])
+    # 🎭 ارسال لیست بازیکنان و نقش‌ها به گرداننده در پیوی
+    await show_roles_list(moderator_id)
 
     text = (
         "🎭 نقش‌ها پخش شد!\n\n"
@@ -1096,19 +1156,19 @@ async def distribute_roles():
         raise ValueError("سناریو انتخاب نشده")
 
     roles_template = scenarios[selected_scenario]["roles"]
+
     # ترتیب بازیکنان: بر اساس صندلی اگر موجود باشد، وگرنه بر اساس players.keys()
     if player_slots:
         player_ids = [player_slots[s] for s in sorted(player_slots.keys())]
     else:
         player_ids = list(players.keys())
 
-    # آماده سازی لیست نقش‌ها مطابق تعداد بازیکنان
+    # آماده‌سازی لیست نقش‌ها مطابق تعداد بازیکنان
     roles = list(roles_template)  # کپی
     if len(player_ids) > len(roles):
         # اگر نیاز به نقش بیشتر هست، بقیه را "شهروند" قرار می‌دهیم
         roles += ["شهروند"] * (len(player_ids) - len(roles))
-    # اگر نقش‌ها بیشتر از بازیکنان بود، کافی است کوتاهش کنیم
-    roles = roles[:len(player_ids)]
+    roles = roles[:len(player_ids)]  # اگر نقش بیشتر از بازیکن بود کوتاه می‌کنیم
 
     random.shuffle(roles)
 
@@ -1116,27 +1176,18 @@ async def distribute_roles():
     for pid, role in zip(player_ids, roles):
         mapping[pid] = role
         try:
-            await bot.send_message(pid, f"🎭 نقش شما: {html.escape(str(role))}")
+            await bot.send_message(pid, f"🎭 نقش شما: <b>{html.escape(str(role))}</b>", parse_mode="HTML")
         except Exception as e:
             # به گرداننده اطلاع بده که ارسال به یکی از بازیکنان شکست خورد
             logging.warning("⚠️ ارسال نقش به %s شکست خورد: %s", pid, e)
             if moderator_id:
                 try:
-                    await bot.send_message(moderator_id, f"⚠ نمی‌توانم نقش را به {players.get(pid, pid)} ارسال کنم.")
+                    await bot.send_message(moderator_id, f"⚠️ نمی‌توانم نقش را به {players.get(pid, pid)} ارسال کنم.")
                 except:
                     pass
 
-    # ارسال لیست نقش‌ها به گرداننده (اگر وجود داشته باشد)
-    if moderator_id:
-        text = "📜 لیست نقش‌ها:\n"
-        for pid, role in mapping.items():
-            text += f"{players.get(pid,'❓')} → {role}\n"
-        try:
-            await bot.send_message(moderator_id, text)
-        except Exception:
-            pass
-
     return mapping
+
 #==================
 
 # =========================
@@ -2023,6 +2074,7 @@ async def distribute_roles_callback(callback: types.CallbackQuery):
 
     try:
         mapping = await distribute_roles()
+        await show_roles_list(moderator_id)
     except Exception as e:
         logging.exception("⚠️ مشکل در پخش نقش‌ها: %s", e)
         await callback.answer("❌ خطا در پخش نقش‌ها.", show_alert=True)
