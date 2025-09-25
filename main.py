@@ -36,9 +36,9 @@ dp = Dispatcher(bot)
 #تست
 #ALLOWED_GROUP_ID = -1003080272814
 #اصلی
-ALLOWED_GROUP_ID = -1001760002160
+#ALLOWED_GROUP_ID = -1001760002160
 #چکنویس
-#ALLOWED_GROUP_ID = -1002356353761
+ALLOWED_GROUP_ID = -1002356353761
 
 # ======================
 # متغیرهای سراسری
@@ -149,6 +149,27 @@ async def manage_game_handler(callback: types.CallbackQuery):
     kb = manage_game_keyboard(group_chat_id)
     await callback.message.edit_text("🎮 منوی مدیریت بازی:", reply_markup=kb)
     await callback.answer()
+
+# ==============================
+# لیست بعد از انتخاب سر صحبت
+# ==============================
+async def send_turn_order_list():
+    if not turn_order:
+        return
+
+    text = "👥 لیست بازیکنان (بر اساس نوبت صحبت):\n"
+    text += "◤◢◣◥◤◢◣◥◤◢◣◥\n\n"
+
+    for i, seat in enumerate(turn_order, start=1):
+        uid = player_slots.get(seat)
+        if not uid:
+            continue
+        name = players.get(uid, "❓")
+        mention = f"<a href='tg://user?id={uid}'><b>{html.escape(name)}</b></a>"
+        text += f"\u200F{i:02d} {mention}\n"
+
+    text += "\n◤◢◣◥◤◢◣◥◤◢◣◥"
+    await bot.send_message(group_chat_id, text, parse_mode="HTML")
 
 
 # -----------------------------
@@ -2394,6 +2415,9 @@ async def speaker_auto(callback: types.CallbackQuery):
 
     await callback.answer(f"✅ صندلی {current_speaker} به صورت رندوم سر صحبت شد.")
 
+    # نمایش لیست بازیکنان بر اساس نوبت صحبت
+    await send_turn_order_list()
+
     # بازگرداندن منوی بازی (انتخاب سر صحبت + شروع دور)
     kb = InlineKeyboardMarkup(row_width=1)
     kb.add(InlineKeyboardButton("👑 انتخاب سر صحبت", callback_data="choose_head"))
@@ -2451,53 +2475,42 @@ async def speaker_manual(callback: types.CallbackQuery):
 #==========================
 # هد ست
 #==========================
-
 @dp.callback_query_handler(lambda c: c.data.startswith("head_set_"))
-async def head_set(callback: types.CallbackQuery):
-    global current_speaker, turn_order, current_turn_index
+async def head_set_handler(callback: types.CallbackQuery):
+    global turn_order, current_turn_index
 
     if callback.from_user.id != moderator_id:
-        await callback.answer("❌ فقط گرداننده می‌تواند انتخاب کند.", show_alert=True)
+        await callback.answer("❌ فقط گرداننده می‌تواند سر صحبت را تعیین کند.", show_alert=True)
         return
 
-    try:
-        seat = int(callback.data.split("_")[2])
-    except (IndexError, ValueError):
-        await callback.answer("⚠ خطای داده صندلی.", show_alert=True)
-        return
+    # صندلی انتخاب شده
+    seat = int(callback.data.split("head_set_")[1])
 
     if seat not in player_slots:
-        await callback.answer("⚠ این صندلی رزرو نشده است.", show_alert=True)
+        await callback.answer("⚠ این صندلی خالی است.", show_alert=True)
         return
 
-    # تنظیم سر صحبت
-    current_speaker = seat
-    seats_list = sorted(player_slots.keys())
-    current_turn_index = seats_list.index(seat)
-    turn_order = seats_list[current_turn_index:] + seats_list[:current_turn_index]
+    # ساخت ترتیب نوبت: بازیکن انتخاب‌شده اول، بقیه به ترتیب صندلی‌ها
+    all_seats = sorted(player_slots.keys())
+    start_index = all_seats.index(seat)
+    turn_order = all_seats[start_index:] + all_seats[:start_index]
 
-    await callback.answer(f"✅ صندلی {seat} به عنوان سر صحبت انتخاب شد.")
+    current_turn_index = 0
 
-    # جاگذاری سر صحبت در اول لیست نوبت‌ها
-    if seat in turn_order:
-        turn_order.remove(seat)
-    turn_order.insert(0, seat)
+    await callback.answer("✅ سر صحبت انتخاب شد!")
 
-    # بازگشت به منوی اصلی
+    # نمایش لیست بازیکنان به ترتیب نوبت صحبت
+    await send_turn_order_list()
+
+    # نمایش منوی شروع دور و چالش
     kb = InlineKeyboardMarkup(row_width=1)
-    kb.add(InlineKeyboardButton("👑 انتخاب سر صحبت", callback_data="choose_head"))
     kb.add(InlineKeyboardButton("▶ شروع دور", callback_data="start_round"))
-
     if challenge_active:
         kb.add(InlineKeyboardButton("⚔ چالش روشن", callback_data="challenge_toggle"))
     else:
         kb.add(InlineKeyboardButton("⚔ چالش خاموش", callback_data="challenge_toggle"))
 
-    await bot.edit_message_reply_markup(
-        chat_id=group_chat_id,
-        message_id=game_message_id,
-        reply_markup=kb
-    )
+    await bot.send_message(group_chat_id, "🔧 حالا می‌توانید دور را شروع کنید:", reply_markup=kb)
 
 
 # ======================
