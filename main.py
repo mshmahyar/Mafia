@@ -131,6 +131,109 @@ def get_jalali_today():
     return today.strftime("%Y/%m/%d")
 
 # ======================
+# مدیریت سناریو
+# ======================
+@dp.callback_query_handler(lambda c: c.data == "manage_scenarios")
+async def manage_scenarios(callback: types.CallbackQuery):
+    # گرفتن لیست ادمین‌ها از گروه اصلی
+    if not group_chat_id:
+        await callback.answer("❌ هنوز گروهی ثبت نشده.", show_alert=True)
+        return
+
+    admins_chat = await bot.get_chat_administrators(group_chat_id)
+    admin_ids = [a.user.id for a in admins_chat]
+
+    if callback.from_user.id not in admin_ids:
+        await callback.answer("❌ فقط ادمین‌های گروه می‌توانند مدیریت سناریو کنند.", show_alert=True)
+        return
+
+    kb = InlineKeyboardMarkup(row_width=1)
+    kb.add(
+        InlineKeyboardButton("➕ افزودن سناریو", callback_data="add_scenario"),
+        InlineKeyboardButton("➖ حذف سناریو", callback_data="remove_scenario"),
+        InlineKeyboardButton("⬅ بازگشت", callback_data="back_main")
+    )
+    await callback.message.edit_text("⚙ مدیریت سناریو:", reply_markup=kb)
+
+
+# شروع افزودن سناریو
+@dp.callback_query_handler(lambda c: c.data == "add_scenario")
+async def add_scenario_start(callback: types.CallbackQuery, state: FSMContext):
+    await callback.message.answer("📝 نام سناریو را وارد کنید:")
+    await state.set_state(ScenarioForm.name)
+
+
+# مرحله ۱: دریافت نام
+@dp.message_handler(state=ScenarioForm.name)
+async def add_scenario_name(message: types.Message, state: FSMContext):
+    await state.update_data(name=message.text.strip())
+    await message.answer("👥 نقش‌های سناریو را با کاما (,) جدا کنید:")
+    await state.set_state(ScenarioForm.roles)
+
+# مرحله ۲: دریافت نقش‌ها
+@dp.message_handler(state=ScenarioForm.roles)
+@dp.message_handler(state=AddScenario.waiting_for_roles)
+async def process_scenario_roles(message: types.Message, state: FSMContext):
+    roles = [r.strip() for r in message.text.split(",") if r.strip()]
+    if not roles:
+        await message.answer("⚠️ لطفاً حداقل یک نقش وارد کنید.")
+        return
+
+    await state.update_data(roles=roles)
+    await message.answer("🔢 حداقل تعداد بازیکنان را وارد کنید (یک عدد):")
+    await AddScenario.waiting_for_min_players.set()
+
+# مرحله ۳: دریافت حداقل بازیکنان و ذخیره نهایی
+@dp.message_handler(state=AddScenario.waiting_for_min_players)
+async def process_scenario_min_players(message: types.Message, state: FSMContext):
+    if not message.text.isdigit():
+        await message.answer("⚠️ لطفاً یک عدد معتبر وارد کنید.")
+        return
+
+    min_players = int(message.text)
+    data = await state.get_data()
+    name = data["name"]
+    roles = data["roles"]
+
+    # ذخیره در دیکشنری scenarios
+    scenarios[name] = {
+        "roles": roles,
+        "min_players": min_players
+    }
+
+    await message.answer(
+        f"✅ سناریو <b>{name}</b> با موفقیت ذخیره شد!\n\n"
+        f"👥 نقش‌ها: {', '.join(roles)}\n"
+        f"🔢 حداقل بازیکنان: {min_players}\n"
+        f"🔢 حداکثر بازیکنان: {len(roles)}",
+        parse_mode="HTML"
+    )
+
+    await state.finish()
+
+
+
+# حذف سناریو
+@dp.callback_query_handler(lambda c: c.data == "remove_scenario")
+async def remove_scenario(callback: types.CallbackQuery):
+    kb = InlineKeyboardMarkup(row_width=1)
+    for scen in scenarios:
+        kb.add(InlineKeyboardButton(f"❌ {scen}", callback_data=f"delete_scen_{scen}"))
+    kb.add(InlineKeyboardButton("⬅ بازگشت", callback_data="manage_scenarios"))
+    await callback.message.edit_text("یک سناریو را برای حذف انتخاب کنید:", reply_markup=kb)
+    await callback.answer()
+
+@dp.callback_query_handler(lambda c: c.data.startswith("delete_scen_"))
+async def delete_scenario(callback: types.CallbackQuery):
+    scen = callback.data.replace("delete_scen_", "")
+    if scen in scenarios:
+        scenarios.pop(scen)
+        save_scenarios()
+        await callback.message.edit_text(f"✅ سناریو «{scen}» حذف شد.", reply_markup=main_menu_keyboard())
+    else:
+        await callback.answer("⚠ این سناریو وجود ندارد.", show_alert=True)
+
+# ======================
 # 🎮 مدیریت بازی در پیوی
 # ======================
 @dp.callback_query_handler(lambda c: c.data == "manage_game")
@@ -983,108 +1086,7 @@ def register_game_panel_handlers(dp: Dispatcher):
     dp.register_callback_query_handler(birthday_player_confirm, lambda c: c.data.startswith("revive_"))
     
 
-# ======================
-# مدیریت سناریو
-# ======================
-@dp.callback_query_handler(lambda c: c.data == "manage_scenarios")
-async def manage_scenarios(callback: types.CallbackQuery):
-    # گرفتن لیست ادمین‌ها از گروه اصلی
-    if not group_chat_id:
-        await callback.answer("❌ هنوز گروهی ثبت نشده.", show_alert=True)
-        return
 
-    admins_chat = await bot.get_chat_administrators(group_chat_id)
-    admin_ids = [a.user.id for a in admins_chat]
-
-    if callback.from_user.id not in admin_ids:
-        await callback.answer("❌ فقط ادمین‌های گروه می‌توانند مدیریت سناریو کنند.", show_alert=True)
-        return
-
-    kb = InlineKeyboardMarkup(row_width=1)
-    kb.add(
-        InlineKeyboardButton("➕ افزودن سناریو", callback_data="add_scenario"),
-        InlineKeyboardButton("➖ حذف سناریو", callback_data="remove_scenario"),
-        InlineKeyboardButton("⬅ بازگشت", callback_data="back_main")
-    )
-    await callback.message.edit_text("⚙ مدیریت سناریو:", reply_markup=kb)
-
-
-# شروع افزودن سناریو
-@dp.callback_query_handler(lambda c: c.data == "add_scenario")
-async def add_scenario_start(callback: types.CallbackQuery, state: FSMContext):
-    await callback.message.answer("📝 نام سناریو را وارد کنید:")
-    await state.set_state(ScenarioForm.name)
-
-
-# مرحله ۱: دریافت نام
-@dp.message_handler(state=ScenarioForm.name)
-async def add_scenario_name(message: types.Message, state: FSMContext):
-    await state.update_data(name=message.text.strip())
-    await message.answer("👥 نقش‌های سناریو را با کاما (,) جدا کنید:")
-    await state.set_state(ScenarioForm.roles)
-
-# مرحله ۲: دریافت نقش‌ها
-@dp.message_handler(state=ScenarioForm.roles)
-@dp.message_handler(state=AddScenario.waiting_for_roles)
-async def process_scenario_roles(message: types.Message, state: FSMContext):
-    roles = [r.strip() for r in message.text.split(",") if r.strip()]
-    if not roles:
-        await message.answer("⚠️ لطفاً حداقل یک نقش وارد کنید.")
-        return
-
-    await state.update_data(roles=roles)
-    await message.answer("🔢 حداقل تعداد بازیکنان را وارد کنید (یک عدد):")
-    await AddScenario.waiting_for_min_players.set()
-
-# مرحله ۳: دریافت حداقل بازیکنان و ذخیره نهایی
-@dp.message_handler(state=AddScenario.waiting_for_min_players)
-async def process_scenario_min_players(message: types.Message, state: FSMContext):
-    if not message.text.isdigit():
-        await message.answer("⚠️ لطفاً یک عدد معتبر وارد کنید.")
-        return
-
-    min_players = int(message.text)
-    data = await state.get_data()
-    name = data["name"]
-    roles = data["roles"]
-
-    # ذخیره در دیکشنری scenarios
-    scenarios[name] = {
-        "roles": roles,
-        "min_players": min_players
-    }
-
-    await message.answer(
-        f"✅ سناریو <b>{name}</b> با موفقیت ذخیره شد!\n\n"
-        f"👥 نقش‌ها: {', '.join(roles)}\n"
-        f"🔢 حداقل بازیکنان: {min_players}\n"
-        f"🔢 حداکثر بازیکنان: {len(roles)}",
-        parse_mode="HTML"
-    )
-
-    await state.finish()
-
-
-
-# حذف سناریو
-@dp.callback_query_handler(lambda c: c.data == "remove_scenario")
-async def remove_scenario(callback: types.CallbackQuery):
-    kb = InlineKeyboardMarkup(row_width=1)
-    for scen in scenarios:
-        kb.add(InlineKeyboardButton(f"❌ {scen}", callback_data=f"delete_scen_{scen}"))
-    kb.add(InlineKeyboardButton("⬅ بازگشت", callback_data="manage_scenarios"))
-    await callback.message.edit_text("یک سناریو را برای حذف انتخاب کنید:", reply_markup=kb)
-    await callback.answer()
-
-@dp.callback_query_handler(lambda c: c.data.startswith("delete_scen_"))
-async def delete_scenario(callback: types.CallbackQuery):
-    scen = callback.data.replace("delete_scen_", "")
-    if scen in scenarios:
-        scenarios.pop(scen)
-        save_scenarios()
-        await callback.message.edit_text(f"✅ سناریو «{scen}» حذف شد.", reply_markup=main_menu_keyboard())
-    else:
-        await callback.answer("⚠ این سناریو وجود ندارد.", show_alert=True)
 
 
 @dp.callback_query_handler(lambda c: c.data == "help")
