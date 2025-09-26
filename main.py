@@ -169,41 +169,46 @@ async def add_scenario_name(message: types.Message, state: FSMContext):
     await state.set_state(ScenarioForm.roles)
 
 # مرحله ۲: دریافت نقش‌ها
-@dp.message_handler(state=ScenarioForm.roles)
-@dp.message_handler(state=AddScenario.waiting_for_roles)
-async def process_scenario_roles(message: types.Message, state: FSMContext):
-    roles = [r.strip() for r in message.text.split(",") if r.strip()]
-    if not roles:
-        await message.answer("⚠️ لطفاً حداقل یک نقش وارد کنید.")
-        return
-
-    await state.update_data(roles=roles)
-    await message.answer("🔢 حداقل تعداد بازیکنان را وارد کنید (یک عدد):")
-    await AddScenario.waiting_for_min_players.set()
-
-# مرحله ۳: دریافت حداقل بازیکنان و ذخیره نهایی
-@dp.message_handler(state=AddScenario.waiting_for_min_players)
-async def process_scenario_min_players(message: types.Message, state: FSMContext):
-    if not message.text.isdigit():
-        await message.answer("⚠️ لطفاً یک عدد معتبر وارد کنید.")
-        return
-
-    min_players = int(message.text)
-    data = await state.get_data()
-    name = data["name"]
-    roles = data["roles"]
-
-    # ذخیره در دیکشنری scenarios
-    scenarios[name] = {
-        "roles": roles,
-        "min_players": min_players
-    }
+    # ذخیره در فایل
+    save_scenarios()
 
     await message.answer(
         f"✅ سناریو <b>{name}</b> با موفقیت ذخیره شد!\n\n"
         f"👥 نقش‌ها: {', '.join(roles)}\n"
-        f"🔢 حداقل بازیکنان: {min_players}\n"
-        f"🔢 حداکثر بازیکنان: {len(roles)}",
+        f"🔢 بازیکنان: {min_players} تا {max_players}",
+        parse_mode="HTML"
+    )
+
+    await state.finish()
+
+# مرحله ۳: دریافت حداقل بازیکنان و ذخیره نهایی
+@dp.message_handler(state=AddScenario.waiting_for_min_players)
+async def add_scenario_min_players(message: types.Message, state: FSMContext):
+    if not message.text.isdigit():
+        await message.answer("⚠️ لطفا یک عدد معتبر وارد کنید.")
+        return
+
+    min_players = int(message.text)
+    data = await state.get_data()
+
+    name = data["name"]
+    roles = data["roles"]
+    max_players = len(roles)  # حداکثر تعداد بازیکن = تعداد نقش‌ها
+
+    # ذخیره در دیکشنری scenarios
+    scenarios[name] = {
+        "roles": roles,
+        "min_players": min_players,
+        "max_players": max_players
+    }
+
+    # ذخیره در فایل
+    save_scenarios()
+
+    await message.answer(
+        f"✅ سناریو <b>{name}</b> با موفقیت ذخیره شد!\n\n"
+        f"👥 نقش‌ها: {', '.join(roles)}\n"
+        f"🔢 بازیکنان: {min_players} تا {max_players}",
         parse_mode="HTML"
     )
 
