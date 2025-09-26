@@ -997,69 +997,77 @@ async def manage_scenarios(callback: types.CallbackQuery):
     )
     await callback.message.edit_text("⚙ مدیریت سناریو:", reply_markup=kb)
 
-# افزودن سناریو
-@dp.callback_query_handler(lambda c: c.data == "add_scenario")
-async def add_scenario(callback: types.CallbackQuery, state: FSMContext):
-    if callback.from_user.id not in admins:
-        await callback.answer("❌ فقط ادمین‌ها می‌توانند سناریو اضافه کنند.", show_alert=True)
-        return
-
+# ✅ شروع افزودن سناریو
+@dp.message_handler(commands=["add_scenario"])
+async def add_scenario_start(message: types.Message):
+    await message.answer("📝 لطفا اسم سناریو را وارد کنید:")
     await ScenarioForm.name.set()
-    await callback.message.edit_text("📝 نام سناریو را بفرستید:")
-    await callback.answer()
 
-@dp.message_handler(state=ScenarioForm.name, content_types=types.ContentTypes.TEXT)
+
+# ✅ دریافت اسم سناریو
+@dp.message_handler(state=ScenarioForm.name)
 async def process_scenario_name(message: types.Message, state: FSMContext):
-    name = message.text.strip()
-    if not name:
-        await message.reply("⚠ نام سناریو نمی‌تواند خالی باشد. دوباره بفرستید.")
-        return
-    await state.update_data(name=name)
-    await ScenarioForm.next()
-    await message.reply("📜 نقش‌ها را خط به خط بفرستید (هر نقش در یک سطر). وقتی تمام شد، روی /done کلیک کنید.")
+    await state.update_data(name=message.text.strip())
+    await message.answer("👥 نقش‌ها را با کاما جدا بنویس (مثلا: دکتر,کارآگاه,مافیا):")
+    await ScenarioForm.roles.set()
 
-@dp.message_handler(state=ScenarioForm.roles, content_types=types.ContentTypes.TEXT)
-async def process_roles(message: types.Message, state: FSMContext):
-    data = await state.get_data()
-    roles = data.get("roles", [])
-    roles.append(message.text.strip())
+# ✅ دریافت نقش‌ها
+@dp.message_handler(state=ScenarioForm.roles)
+async def process_scenario_roles(message: types.Message, state: FSMContext):
+    roles = [r.strip() for r in message.text.split(",") if r.strip()]
+    if not roles:
+        await message.answer("⚠️ لطفا حداقل یک نقش وارد کنید.")
+        return
     await state.update_data(roles=roles)
-    await message.reply(f"✅ نقش «{message.text.strip()}» اضافه شد. (برای پایان /done بزنید)")
+    await message.answer("🔢 حداقل تعداد بازیکنان را وارد کنید:")
+    await ScenarioForm.min_players.set()
 
-@dp.message_handler(commands="done", state=ScenarioForm.roles)
-async def finish_roles(message: types.Message, state: FSMContext):
-    data = await state.get_data()
-    if not data.get("roles"):
-        await message.reply("⚠ هیچ نقشی وارد نشده. دوباره نقش‌ها را بفرستید.")
-        return
-    await ScenarioForm.next()
-    await message.reply("👥 حالا حداقل تعداد بازیکن را بفرستید (باید عدد باشد):")
-
-@dp.message_handler(state=ScenarioForm.min_players, content_types=types.ContentTypes.TEXT)
+# ✅ دریافت حداقل بازیکن
+@dp.message_handler(state=ScenarioForm.min_players)
 async def process_min_players(message: types.Message, state: FSMContext):
     try:
-        min_players = int(message.text.strip())
+        min_players = int(message.text)
+        if min_players <= 0:
+            raise ValueError
     except ValueError:
-        await message.reply("⚠ لطفاً یک عدد معتبر وارد کنید.")
+        await message.answer("⚠️ لطفا یک عدد معتبر وارد کنید.")
+        return
+
+    await state.update_data(min_players=min_players)
+    await message.answer("🔢 حداکثر تعداد بازیکنان را وارد کنید:")
+    await ScenarioForm.max_players.set()
+
+# ✅ دریافت حداکثر بازیکن و ذخیره در scenarios
+@dp.message_handler(state=ScenarioForm.max_players)
+async def process_max_players(message: types.Message, state: FSMContext):
+    try:
+        max_players = int(message.text)
+        if max_players <= 0:
+            raise ValueError
+    except ValueError:
+        await message.answer("⚠️ لطفا یک عدد معتبر وارد کنید.")
         return
 
     data = await state.get_data()
     name = data["name"]
     roles = data["roles"]
+    min_players = data["min_players"]
 
-    # ذخیره در scenarios
+    # ذخیره در دیکشنری scenarios
     scenarios[name] = {
         "roles": roles,
-        "min_players": min_players
+        "min_players": min_players,
+        "max_players": max_players
     }
-    save_scenarios()
 
-    await message.reply(f"✅ سناریو «{name}» با {len(roles)} نقش و حداقل {min_players} بازیکن ذخیره شد.")
+    await message.answer(
+        f"✅ سناریو <b>{name}</b> با موفقیت ذخیره شد!\n\n"
+        f"👥 نقش‌ها: {', '.join(roles)}\n"
+        f"🔢 بازیکنان: {min_players} تا {max_players}",
+        parse_mode="HTML"
+    )
+
     await state.finish()
-
-def save_scenarios():
-    with open("scenarios.json", "w", encoding="utf-8") as f:
-        json.dump(scenarios, f, ensure_ascii=False, indent=4)
 
 
 # حذف سناریو
