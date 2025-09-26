@@ -31,8 +31,8 @@ if not API_TOKEN:
 
 logging.basicConfig(level=logging.INFO)
 bot = Bot(token=API_TOKEN, parse_mode="HTML")
-storage = MemoryStorage()
-dp = Dispatcher(bot)
+dp = Dispatcher(bot, storage=MemoryStorage())
+
 # فقط این گروه اجازه اجرای بازی داره
 #تست
 #ALLOWED_GROUP_ID = -1003080272814
