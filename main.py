@@ -18,7 +18,9 @@ class ScenarioForm(StatesGroup):
     name = State()
     roles = State()
     min_players = State()
-    max_players = State()
+    waiting_for_name = State()
+    waiting_for_roles = State()
+    waiting_for_min_players = State()
 
 
 
@@ -1023,41 +1025,45 @@ async def add_scenario_name(message: types.Message, state: FSMContext):
 
 # مرحله ۲: دریافت نقش‌ها
 @dp.message_handler(state=ScenarioForm.roles)
-async def add_scenario_roles(message: types.Message, state: FSMContext):
+@dp.message_handler(state=AddScenario.waiting_for_roles)
+async def process_scenario_roles(message: types.Message, state: FSMContext):
     roles = [r.strip() for r in message.text.split(",") if r.strip()]
     if not roles:
-        await message.answer("⚠️ لطفا حداقل یک نقش وارد کنید.")
+        await message.answer("⚠️ لطفاً حداقل یک نقش وارد کنید.")
         return
+
     await state.update_data(roles=roles)
-    await message.answer("🔢 حداقل تعداد بازیکنان را وارد کنید:")
-    await state.set_state(ScenarioForm.min_players)
+    await message.answer("🔢 حداقل تعداد بازیکنان را وارد کنید (یک عدد):")
+    await AddScenario.waiting_for_min_players.set()
 
 # مرحله ۳: دریافت حداقل بازیکنان و ذخیره نهایی
-@dp.message_handler(state=ScenarioForm.min_players)
-async def add_scenario_min_players(message: types.Message, state: FSMContext):
+@dp.message_handler(state=AddScenario.waiting_for_min_players)
+async def process_scenario_min_players(message: types.Message, state: FSMContext):
     if not message.text.isdigit():
-        await message.answer("⚠️ لطفا یک عدد معتبر وارد کنید.")
+        await message.answer("⚠️ لطفاً یک عدد معتبر وارد کنید.")
         return
-    min_players = int(message.text)
 
+    min_players = int(message.text)
     data = await state.get_data()
     name = data["name"]
     roles = data["roles"]
 
+    # ذخیره در دیکشنری scenarios
     scenarios[name] = {
         "roles": roles,
-        "min_players": min_players,
-        "max_players": len(roles)  # خودکار از تعداد نقش‌ها
+        "min_players": min_players
     }
-    save_scenarios()
 
     await message.answer(
-        f"✅ سناریو <b>{name}</b> ذخیره شد!\n\n"
+        f"✅ سناریو <b>{name}</b> با موفقیت ذخیره شد!\n\n"
         f"👥 نقش‌ها: {', '.join(roles)}\n"
-        f"🔢 بازیکنان: {min_players} تا {len(roles)}",
+        f"🔢 حداقل بازیکنان: {min_players}\n"
+        f"🔢 حداکثر بازیکنان: {len(roles)}",
         parse_mode="HTML"
     )
+
     await state.finish()
+
 
 
 # حذف سناریو
