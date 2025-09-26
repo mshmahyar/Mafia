@@ -170,17 +170,13 @@ async def add_scenario_name(message: types.Message, state: FSMContext):
 
 
 # مرحله ۲: دریافت نقش‌ها
-    # ذخیره در فایل
-    save_scenarios()
+@dp.message_handler(state=AddScenario.waiting_for_roles)
+async def add_scenario_roles(message: types.Message, state: FSMContext):
+    roles = [r.strip() for r in message.text.split(",") if r.strip()]
+    await state.update_data(roles=roles)
 
-    await message.answer(
-        f"✅ سناریو <b>{name}</b> با موفقیت ذخیره شد!\n\n"
-        f"👥 نقش‌ها: {', '.join(roles)}\n"
-        f"🔢 بازیکنان: {min_players} تا {max_players}",
-        parse_mode="HTML"
-    )
-
-    await state.finish()
+    await message.answer("🔢 حداقل تعداد بازیکنان را وارد کنید:")
+    await state.set_state(AddScenario.waiting_for_min_players)
 
 # مرحله ۳: دریافت حداقل بازیکنان و ذخیره نهایی
 @dp.message_handler(state=AddScenario.waiting_for_min_players)
