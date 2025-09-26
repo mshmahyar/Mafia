@@ -986,9 +986,18 @@ def register_game_panel_handlers(dp: Dispatcher):
 # ======================
 @dp.callback_query_handler(lambda c: c.data == "manage_scenarios")
 async def manage_scenarios(callback: types.CallbackQuery):
-    if callback.from_user.id not in admins:
-        await callback.answer("❌ فقط ادمین‌ها می‌توانند مدیریت سناریو کنند.", show_alert=True)
+    # گرفتن لیست ادمین‌ها از گروه اصلی
+    if not group_chat_id:
+        await callback.answer("❌ هنوز گروهی ثبت نشده.", show_alert=True)
         return
+
+    admins_chat = await bot.get_chat_administrators(group_chat_id)
+    admin_ids = [a.user.id for a in admins_chat]
+
+    if callback.from_user.id not in admin_ids:
+        await callback.answer("❌ فقط ادمین‌های گروه می‌توانند مدیریت سناریو کنند.", show_alert=True)
+        return
+
     kb = InlineKeyboardMarkup(row_width=1)
     kb.add(
         InlineKeyboardButton("➕ افزودن سناریو", callback_data="add_scenario"),
@@ -996,6 +1005,7 @@ async def manage_scenarios(callback: types.CallbackQuery):
         InlineKeyboardButton("⬅ بازگشت", callback_data="back_main")
     )
     await callback.message.edit_text("⚙ مدیریت سناریو:", reply_markup=kb)
+
 
 # ✅ شروع افزودن سناریو
 @dp.message_handler(commands=["add_scenario"])
