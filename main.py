@@ -14,13 +14,11 @@ from aiogram.dispatcher.filters.state import State, StatesGroup
 from aiogram.contrib.fsm_storage.memory import MemoryStorage
 from aiogram.utils.exceptions import MessageNotModified, MessageToEditNotFound, MessageCantBeEdited
 import jdatetime
-class ScenarioForm(StatesGroup):
-    name = State()
-    roles = State()
-    min_players = State()
+class AddScenario(StatesGroup):
     waiting_for_name = State()
     waiting_for_roles = State()
     waiting_for_min_players = State()
+
 
 
 
