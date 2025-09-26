@@ -18,6 +18,7 @@ class ScenarioForm(StatesGroup):
     name = State()
     roles = State()
     min_players = State()
+    max_players = State()
 
 
 
