@@ -158,15 +158,16 @@ async def manage_scenarios(callback: types.CallbackQuery):
 @dp.callback_query_handler(lambda c: c.data == "add_scenario")
 async def add_scenario_start(callback: types.CallbackQuery, state: FSMContext):
     await callback.message.answer("📝 نام سناریو را وارد کنید:")
-    await state.set_state(ScenarioForm.name)
+    await state.set_state(AddScenario.waiting_for_name)
 
 
 # مرحله ۱: دریافت نام
-@dp.message_handler(state=ScenarioForm.name)
+@dp.message_handler(state=AddScenario.waiting_for_name)
 async def add_scenario_name(message: types.Message, state: FSMContext):
     await state.update_data(name=message.text.strip())
     await message.answer("👥 نقش‌های سناریو را با کاما (,) جدا کنید:")
-    await state.set_state(ScenarioForm.roles)
+    await state.set_state(AddScenario.waiting_for_roles)
+
 
 # مرحله ۲: دریافت نقش‌ها
     # ذخیره در فایل
